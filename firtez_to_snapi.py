@@ -17,7 +17,7 @@ atmos = frz.read_model(name+str(start)+'.bin')
 h = atmos.z[0,0] * 1E5 # to cm
 
 NX, NY, NZ = atmos.z.shape
-print ('atmosphere dimensions: ', NT, NX,NY,NZ)
+print ('info:: atmosphere dimensions: ', NT, NX, NY, NZ)
 
 snapiatmos = np.zeros([12, NX*NT, NY, NZ])
 
