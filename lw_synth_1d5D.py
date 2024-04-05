@@ -52,7 +52,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(3)
+    atmos.quadrature(1)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -138,7 +138,7 @@ def overseer_work(atmosarr, task_grain_size=16):
     task_writeback_range = [] # no idea
     
     cdf_size = atmosarr.shape[0]
-    print("overseer::info:: cdf_size = ", cdf_size)
+    print("info::overseer::cdf_size = ", cdf_size)
 
     num_cdf_tasks = int(np.ceil(cdf_size / task_grain_size)) # number of tasks = roundedup number of pixels / grain
     
@@ -197,13 +197,15 @@ def overseer_work(atmosarr, task_grain_size=16):
 
             # if the worker has the exit tag mark it as closed.
             elif tag == tags.EXIT:
-                print(" * Overseer : worker {0} exited.".format(source))
+                #print(" * Overseer : worker {0} exited.".format(source))
                 closed_workers += 1
 
     # Once finished, dump all the data
-    print("Overseer finishing")
-    kek = fits.PrimaryHDU(spectra)
-    kek.writeto("output_spectra.fits",overwrite=True)
+    print("info::overseer::writing the spectra")
+    spechdu = fits.PrimaryHDU(spectra)
+    wavhdu = fits.ImageHDU(np.linspace(630.1,630.3,201))
+    to_output = fits.HDUList([spechdu, wavhdu])
+    to_output.writeto(sys.argv[1][:-5]+'_synth.fits', overwrite=True)
 
     
 def worker_work(rank):
@@ -291,10 +293,9 @@ if (__name__ == '__main__'):
         atmosarr[:,2,:] = input_atmos[:,9,:] * 10.0
         atmosarr[:,3,:] = input_atmos[:,5,:] * -1E-2 # cm to m
         atmosarr = atmosarr[:,:,::-1] # flip from SIR to normal SA convention
-        print("I like to debug kek lol bur")
-
+        
         del(input_atmos) 
-        print("info: final atmos shape is ", atmosarr.shape)
+        print("info::overseer::final atmos shape is: ", atmosarr.shape)
 
         overseer_work(atmosarr, task_grain_size = 16)
     else:
