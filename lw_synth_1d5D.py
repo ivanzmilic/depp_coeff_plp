@@ -52,7 +52,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(3)
+    atmos.quadrature(1)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -283,7 +283,7 @@ def worker_work(rank):
                 success = 1
                 #try:
                     # This should work
-                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=wave*1.000275, mu=1.0, actives='Mg')
+                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=wave*1.000275, mu=1.0, actives='Fe')
                 #except:
                     # NOTE(cmo): In this instance, the task should never fail
                     # for sane input.
@@ -317,10 +317,10 @@ if (__name__ == '__main__'):
         # Probably at some point we want to have this in a config input file or so
         # -------------------------------------------------------------------
         i_start = 0
-        i_end = 256
+        i_end = 768
         i_skip = 4
         j_start = 0
-        j_end = 256
+        j_end = 768
         j_skip = 4
         # --------------------------------------------------------------------
 
@@ -357,7 +357,8 @@ if (__name__ == '__main__'):
 
         atmosarr = atmosarr[:,:,:,::-1] # flip from SIR to normal SA convention
 
-        wave = np.linspace(516.9,517.6,351)
+        #wave = np.linspace(516.9,517.6,351)
+        wave = np.linspace(524.95,525.05,101)
         
         del(input_atmos) 
         print("info::overseer::final atmos shape is: ", atmosarr.shape)
