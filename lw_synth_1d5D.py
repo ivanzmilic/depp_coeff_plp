@@ -10,7 +10,7 @@ from enum import IntEnum
 
 import lightweaver as lw
 import numpy as np
-from lightweaver.rh_atoms import (Al_atom, C_atom, CaII_atom, Fe23_atom, H_6_atom, He_9_atom, MgII_atom, N_atom, Na_atom, O_atom, S_atom, Si_atom)
+from lightweaver.rh_atoms import (Al_atom, C_atom, CaII_atom, Fe23_atom, H_6_atom, He_9_atom, MgI_atom, N_atom, Na_atom, O_atom, S_atom, Si_atom)
 from mpi4py import MPI
 from tqdm import tqdm
 import sys
@@ -52,13 +52,13 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(1)
+    atmos.quadrature(3)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
     # Configure the set of atomic models to use. Contrary to SNAPI you have to explicitly specify all species
     # Annoying, but since you have all the atoms in the file - that is fine.
-    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_atom(), He_9_atom(), MgII_atom(), N_atom(), Na_atom(), S_atom()])
+    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_atom(), He_9_atom(), MgI_atom(), N_atom(), Na_atom(), S_atom()])
     
     # Set actives to the ones you have inputted.
     aSet.set_active(actives)
@@ -80,6 +80,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # provided by Lightweaver). Go test this one in order to calculate stuff in LTE!
     
     #lw.iterate_ctx_se(ctx, prd=prd)
+    
     #lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
 
     ctx.formal_sol_gamma_matrices()
@@ -117,14 +118,26 @@ def slice_tasks(atmosarr, task_start, grain_size):
     sl = slice(task_start, task_end) # this is a slice object, allowing us to access the specific thingy
     data = {}
     data['taskGrainSize'] = task_end - task_start
-    data['z'] = atmosarr[sl,0,:]
+    data['z'] =           atmosarr[sl,0,:]
     data['temperature'] = atmosarr[sl,1,:]
-    data['pg'] = atmosarr[sl,2,:]
-    data['vlos'] = atmosarr[sl,3,:]
+    data['pg'] =          atmosarr[sl,2,:]
+    data['vlos'] =        atmosarr[sl,3,:]
+
+    # If we are Stokes, means we have magnetic field too:
+    if (atmosarr.shape[1] == 7):
+        data['B'] =   atmosarr[sl,4,:]
+        data['inc'] = atmosarr[sl,5,:]
+        data['azi'] = atmosarr[sl,6,:]
+
     return data
 
-def overseer_work(atmosarr, task_grain_size=16):
+def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     """ Function to define the work to do by the overseer """
+
+    # Reshape the atmosphere:
+    NX, NY, NP, NZ = atmosarr.shape
+    atmosarr = atmosarr.reshape(NX*NY, NP, NZ)
+    print("info::overseer::new atmos shape = ", NX*NY)
     
     # Index of the task to keep track of each job
     task_index = 0
@@ -172,6 +185,8 @@ def overseer_work(atmosarr, task_grain_size=16):
                     # Slice out our task
                     data = slice_tasks(atmosarr, task_start_idx[task_index], task_grain_size)
                     data['index'] = task_index
+                    data['wave'] = wave
+                    data['stokes'] = stokes
 
                     # send the data of the task and put the status to 1 (done)
                     comm.send(data, dest=source, tag=tags.START)
@@ -201,11 +216,16 @@ def overseer_work(atmosarr, task_grain_size=16):
                 closed_workers += 1
 
     # Once finished, dump all the data
+    ns = 1
+    if (stokes):
+        ns = 4
+    spectra = np.asarray(spectra)
+    spectra = spectra.reshape(NX, NY, ns,-1)
     print("info::overseer::writing the spectra")
     spechdu = fits.PrimaryHDU(spectra)
-    wavhdu = fits.ImageHDU(np.linspace(630.1,630.3,201))
+    wavhdu = fits.ImageHDU(wave)
     to_output = fits.HDUList([spechdu, wavhdu])
-    to_output.writeto(sys.argv[1][:-5]+'_synth.fits', overwrite=True)
+    to_output.writeto(sys.argv[1][:-5]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
 
     
 def worker_work(rank):
@@ -231,11 +251,16 @@ def worker_work(rank):
             vlos = data_in['vlos']
             pg = data_in['pg']
             task_size = data_in['taskGrainSize']
+            wave = data_in['wave']
             ND = temperature.shape[-1]
+            stokes = data_in['stokes']
 
-            wave = np.linspace(630.1,630.3,201)
+            if (stokes):
+                B = data_in['B']
+                inc = data_in['inc']
+                azi = data_in['azi']
 
-            stokes = False
+            
             ns = 1
             if (stokes):
                 ns = 4
@@ -245,13 +270,20 @@ def worker_work(rank):
             for t in range(task_size): # Now, task size is not one, probably a good choice
                 # Configure the context
                 # Need to loop over task size
-                atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
+                atmos = 0
+                if (stokes):
+                    atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t],
+                                  B=B[t], gammaB=inc[t], chiB=azi[t])
+                else:
+                    atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
                                   temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t])
+
                 
                 success = 1
                 #try:
                     # This should work
-                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=wave*1.000275, mu=1.0, actives='Fe')
+                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=wave*1.000275, mu=1.0, actives='Mg')
                 #except:
                     # NOTE(cmo): In this instance, the task should never fail
                     # for sane input.
@@ -278,26 +310,59 @@ if (__name__ == '__main__'):
     rank = comm.rank        # rank of this process
     status = MPI.Status()   # get MPI status object
 
-    print(f"Node {rank}/{size} active", flush=True)
+    #print(f"Node {rank}/{size} active", flush=True)
 
     if rank == 0:
-       
-        input_atmos = fits.open(sys.argv[1])[0].data
-        input_atmos = input_atmos.transpose(2,3,0,1)
-        NX, NY, NP, NZ = input_atmos.shape
-        input_atmos = input_atmos.reshape(NX*NY,NP,NZ)
 
-        atmosarr = np.zeros([NX*NY, 4, NZ])
-        atmosarr[:,0,:] = input_atmos[:,8,:] * 1E3 # km to m
-        atmosarr[:,1,:] = input_atmos[:,1,:] # K 
-        atmosarr[:,2,:] = input_atmos[:,9,:] * 10.0
-        atmosarr[:,3,:] = input_atmos[:,5,:] * -1E-2 # cm to m
-        atmosarr = atmosarr[:,:,::-1] # flip from SIR to normal SA convention
+        # Probably at some point we want to have this in a config input file or so
+        # -------------------------------------------------------------------
+        i_start = 0
+        i_end = 256
+        i_skip = 4
+        j_start = 0
+        j_end = 256
+        j_skip = 4
+        # --------------------------------------------------------------------
+
+       
+        input_atmos = fits.open(sys.argv[1])[0].data[:,:,i_start:i_end:i_skip,j_start:j_end:j_skip]
+        input_atmos = input_atmos.transpose(2,3,0,1)
+        print("info::overseer:: input atmos shape : ", input_atmos.shape)
+        
+        NX, NY, NP, NZ = input_atmos.shape
+        
+        stokes = bool(sys.argv[2])
+        print("info::overseer:: stokes mode is : ", stokes)
+
+        atmosarr = 0.0
+
+        if (stokes == False): # 4 parameters is enough
+            atmosarr = np.zeros([NX, NY, 4, NZ])
+            atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
+            atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
+            atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
+            atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
+
+        else: # need 7 parameters:
+
+            atmosarr = np.zeros([NX, NY, 7, NZ])
+            atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
+            atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
+            atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
+            atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
+            atmosarr[:,:,4,:] = input_atmos[:,:,4,:] * 1E-5 # G to T
+            atmosarr[:,:,5,:] = input_atmos[:,:,6,:] # TOCHECK
+            atmosarr[:,:,6,:] = input_atmos[:,:,7,:] # TOCHECK
+
+
+        atmosarr = atmosarr[:,:,:,::-1] # flip from SIR to normal SA convention
+
+        wave = np.linspace(516.9,517.6,351)
         
         del(input_atmos) 
         print("info::overseer::final atmos shape is: ", atmosarr.shape)
 
-        overseer_work(atmosarr, task_grain_size = 16)
+        overseer_work(atmosarr, wave, stokes, task_grain_size = 1)
     else:
         worker_work(rank)
         pass
