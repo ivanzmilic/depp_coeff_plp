@@ -24,6 +24,54 @@ from astropy.io import fits
 
 # other files
 
+def load_muram_fixed_format(filename, stokes=False): #TODO, make stokes version where we also load the magnetic field
+
+    # This function will take 4D cube created from a muram cube and load it into a file.
+    # this is the simplest possible case, as the 4D cube was already created to fit our format
+
+    input_atmos = fits.open(filename)[0].data
+    input_atmos = input_atmos.transpose(2,3,0,1)
+    
+    input_atmos[:,:,0,:] *= 1E3
+    input_atmos[:,:,2,:] *= 10.0
+    input_atmos[:,:,3,:] *= -1E-2
+
+    return input_atmos[:,:,:,::-1]
+
+def load_sir_format(filename, stokes=False):
+
+    input_atmos = fits.open(sys.argv[1])[0].data
+    input_atmos = input_atmos.transpose(2,3,0,1)
+        
+    atmosarr = 0.0
+
+    if (stokes == False): # 4 parameters is enough
+        atmosarr = np.zeros([NX, NY, 4, NZ])
+        atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
+        atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
+        atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
+        atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
+
+    else: # need 7 parameters:
+
+        atmosarr = np.zeros([NX, NY, 7, NZ])
+        atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
+        atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
+        atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
+        atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
+        atmosarr[:,:,4,:] = input_atmos[:,:,4,:] * 1E-5 # G to T
+        atmosarr[:,:,5,:] = input_atmos[:,:,6,:] * np.pi/180.0 # inc, TOCHECK
+        atmosarr[:,:,6,:] = input_atmos[:,:,7,:] * np.pi/180.0 # azi ,TOCHECK
+
+    atmosarr = atmosarr[:,:,:,::-1] # flip from SIR to normal SA convention
+    return atmosarr
+
+def airtovac(lambda_air):
+
+  s = 1E2/(lambda_air*1E8);
+  n = 1.0 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s*s) + 0.0001599740894897 / (38.92568793293 - s*s);
+  return lambda_air * n
+
 def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     
     '''
@@ -231,11 +279,6 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
 def worker_work(rank):
     # Function to define the work that the workers will do
 
-    #atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=np.linspace(100, 0, Nspace),
-    #                              temperature=np.ones(Nspace)*5000, ne=np.ones(Nspace), 
-    #                              vlos=np.ones(Nspace), vturb=np.ones(Nspace) * 2e3,
-    #                              nHTot=np.ones(Nspace))
-    
     while True:
         # Send the overseer the signal that the worker is ready
         comm.send(None, dest=0, tag=tags.READY)
@@ -274,16 +317,17 @@ def worker_work(rank):
                 if (stokes):
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
                                   temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t],
-                                  B=B[t], gammaB=inc[t], chiB=azi[t])
+                                  B=B[t], gammaB=inc[t], chiB=azi[t], convertScales=False)
                 else:
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t])
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t], 
+                                  convertScales=False)
 
                 
                 success = 1
                 #try:
                     # This should work
-                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=wave*1.000275, mu=1.0, actives='Fe')
+                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Fe')
                 #except:
                     # NOTE(cmo): In this instance, the task should never fail
                     # for sane input.
@@ -317,53 +361,23 @@ if (__name__ == '__main__'):
         # Probably at some point we want to have this in a config input file or so
         # -------------------------------------------------------------------
         i_start = 0
-        i_end = 768
-        i_skip = 4
+        i_end = 128
+        i_skip = 1
         j_start = 0
-        j_end = 768
-        j_skip = 4
+        j_end = 128
+        j_skip = 1
         # --------------------------------------------------------------------
-
-       
-        input_atmos = fits.open(sys.argv[1])[0].data[:,:,i_start:i_end:i_skip,j_start:j_end:j_skip]
-        input_atmos = input_atmos.transpose(2,3,0,1)
-        print("info::overseer:: input atmos shape : ", input_atmos.shape)
-        
-        NX, NY, NP, NZ = input_atmos.shape
-        
         stokes = bool(sys.argv[2])
-        print("info::overseer:: stokes mode is : ", stokes)
-
-        atmosarr = 0.0
-
-        if (stokes == False): # 4 parameters is enough
-            atmosarr = np.zeros([NX, NY, 4, NZ])
-            atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
-            atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
-            atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
-            atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
-
-        else: # need 7 parameters:
-
-            atmosarr = np.zeros([NX, NY, 7, NZ])
-            atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
-            atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
-            atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
-            atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
-            atmosarr[:,:,4,:] = input_atmos[:,:,4,:] * 1E-5 # G to T
-            atmosarr[:,:,5,:] = input_atmos[:,:,6,:] # TOCHECK
-            atmosarr[:,:,6,:] = input_atmos[:,:,7,:] # TOCHECK
-
-
-        atmosarr = atmosarr[:,:,:,::-1] # flip from SIR to normal SA convention
+        print("info::overseer::stokes mode is: ", stokes)
+        atmosarr = load_muram_fixed_format(sys.argv[1])
+        atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
-        wave = np.linspace(524.95,525.05,101)
+        wave = np.linspace(525.00,525.04,81)
         
-        del(input_atmos) 
         print("info::overseer::final atmos shape is: ", atmosarr.shape)
 
-        overseer_work(atmosarr, wave, stokes, task_grain_size = 1)
+        overseer_work(atmosarr, wave, False, task_grain_size = 16)
     else:
         worker_work(rank)
         pass
