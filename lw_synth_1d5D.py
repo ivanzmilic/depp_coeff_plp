@@ -32,16 +32,21 @@ def load_muram_fixed_format(filename, stokes=False): #TODO, make stokes version 
     input_atmos = fits.open(filename)[0].data
     input_atmos = input_atmos.transpose(2,3,0,1)
     
+    # The only thing we need to do is convert CGS to SI
     input_atmos[:,:,0,:] *= 1E3
     input_atmos[:,:,2,:] *= 10.0
     input_atmos[:,:,3,:] *= -1E-2
 
-    return input_atmos[:,:,:,::-1]
+    input_atmos = input_atmos[:,:,:,::-1]
+    return input_atmos
 
 def load_sir_format(filename, stokes=False):
 
-    input_atmos = fits.open(sys.argv[1])[0].data
+    input_atmos = fits.open(sys.argv[1])[0].data # reads from fits 
+    # SIR comes in format 
     input_atmos = input_atmos.transpose(2,3,0,1)
+
+    NX, NY, NP, NZ = input_atmos.shape
         
     atmosarr = 0.0
 
@@ -314,6 +319,7 @@ def worker_work(rank):
                 # Configure the context
                 # Need to loop over task size
                 atmos = 0
+                # TODO - consider convertScales!!!!
                 if (stokes):
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
                                   temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t],
@@ -323,7 +329,6 @@ def worker_work(rank):
                                   temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t], 
                                   convertScales=False)
 
-                
                 success = 1
                 #try:
                     # This should work
@@ -362,18 +367,33 @@ if (__name__ == '__main__'):
         # -------------------------------------------------------------------
         i_start = 0
         i_end = 128
-        i_skip = 1
+        i_skip = 2
         j_start = 0
         j_end = 128
-        j_skip = 1
+        j_skip = 2
         # --------------------------------------------------------------------
-        stokes = bool(sys.argv[2])
+        stokes = sys.argv[2].lower() == 'true'
+        atmos_format = sys.argv[3]
+        atmosarr = 0
         print("info::overseer::stokes mode is: ", stokes)
-        atmosarr = load_muram_fixed_format(sys.argv[1])
+        if (atmos_format == 'mrmfx'):
+            print("info:overseer: opening the atmosphere in simple muram format...")
+            atmosarr = load_muram_fixed_format(sys.argv[1])
+            print("info:overseer: ...sucess!")
+
+        elif (atmos_format == 'sir'):
+            print("info:overseer: opening the atmosphere in SIR format...")
+            atmosarr = load_sir_format(sys.argv[1])
+            print("info:overseer: ...sucess!")
+        else:
+            print("info:overseer: unknown file format. exiting..")
+            exit();
+
         atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
         wave = np.linspace(525.00,525.04,81)
+        #wave = np.linspace(630.1,630.3,201)
         
         print("info::overseer::final atmos shape is: ", atmosarr.shape)
 

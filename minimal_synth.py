@@ -44,7 +44,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(3)
+    atmos.quadrature(1)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -108,5 +108,9 @@ pgas = atmos_in[3] * 10.0
 atmos= lw.Atmosphere.make_1d(lw.atmosphere.ScaleType.Geometric, np.copy(z), np.copy(T), np.copy(vz), np.copy(vturb), Pgas=pgas)
 
 #wave = np.linspace(588.8, 589.8, 1001)
-wave = np.linspace(630.0,630.4,401)
+#wave = np.linspace(630.0,630.4,401)
+wave = np.linspace(525.0,525.05,51)
 I = synth(atmos, conserve=False, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Fe')
+
+spec = np.concatenate((wave[None,:], I[:]), axis=0)
+np.savetxt("testme.dat", spec.T, fmt="%1.6e")
