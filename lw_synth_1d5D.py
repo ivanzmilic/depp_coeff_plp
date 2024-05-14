@@ -11,6 +11,7 @@ from enum import IntEnum
 import lightweaver as lw
 import numpy as np
 from lightweaver.rh_atoms import (Al_atom, C_atom, CaII_atom, Fe23_atom, H_6_atom, He_9_atom, MgI_atom, N_atom, Na_atom, O_atom, S_atom, Si_atom)
+from myatoms import Fe23_5250
 from mpi4py import MPI
 from tqdm import tqdm
 import sys
@@ -22,54 +23,12 @@ threadpool_limits(1)
 # various i/o stuff:
 from astropy.io import fits
 
+from loaders import sir_format_loader
+from loaders import flatten_atmosarr
+from loaders import muram_binary_loader
+from loaders import muram_binary_loader_sub
+
 # other files
-
-def load_muram_fixed_format(filename, stokes=False): #TODO, make stokes version where we also load the magnetic field
-
-    # This function will take 4D cube created from a muram cube and load it into a file.
-    # this is the simplest possible case, as the 4D cube was already created to fit our format
-
-    input_atmos = fits.open(filename)[0].data
-    input_atmos = input_atmos.transpose(2,3,0,1)
-    
-    # The only thing we need to do is convert CGS to SI
-    input_atmos[:,:,0,:] *= 1E3
-    input_atmos[:,:,2,:] *= 10.0
-    input_atmos[:,:,3,:] *= -1E-2
-
-    input_atmos = input_atmos[:,:,:,::-1]
-    return input_atmos
-
-def load_sir_format(filename, stokes=False):
-
-    input_atmos = fits.open(sys.argv[1])[0].data # reads from fits 
-    # SIR comes in format 
-    input_atmos = input_atmos.transpose(2,3,0,1)
-
-    NX, NY, NP, NZ = input_atmos.shape
-        
-    atmosarr = 0.0
-
-    if (stokes == False): # 4 parameters is enough
-        atmosarr = np.zeros([NX, NY, 4, NZ])
-        atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
-        atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
-        atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
-        atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
-
-    else: # need 7 parameters:
-
-        atmosarr = np.zeros([NX, NY, 7, NZ])
-        atmosarr[:,:,0,:] = input_atmos[:,:,8,:] * 1E3 # km to m
-        atmosarr[:,:,1,:] = input_atmos[:,:,1,:] # K 
-        atmosarr[:,:,2,:] = input_atmos[:,:,9,:] * 10.0
-        atmosarr[:,:,3,:] = input_atmos[:,:,5,:] * -1E-2 # cm to m
-        atmosarr[:,:,4,:] = input_atmos[:,:,4,:] * 1E-5 # G to T
-        atmosarr[:,:,5,:] = input_atmos[:,:,6,:] * np.pi/180.0 # inc, TOCHECK
-        atmosarr[:,:,6,:] = input_atmos[:,:,7,:] * np.pi/180.0 # azi ,TOCHECK
-
-    atmosarr = atmosarr[:,:,:,::-1] # flip from SIR to normal SA convention
-    return atmosarr
 
 def airtovac(lambda_air):
 
@@ -111,7 +70,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     
     # Configure the set of atomic models to use. Contrary to SNAPI you have to explicitly specify all species
     # Annoying, but since you have all the atoms in the file - that is fine.
-    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_atom(), He_9_atom(), MgI_atom(), N_atom(), Na_atom(), S_atom()])
+    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(), MgI_atom(), N_atom(), Na_atom(), S_atom()])
     
     # Set actives to the ones you have inputted.
     aSet.set_active(actives)
@@ -120,7 +79,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     spect = aSet.compute_wavelength_grid()
 
     # Calculate electron density in lte, we are never using the electron density from the model
-    eqPops = aSet.iterate_lte_ne_eq_pops(atmos)
+    eqPops = aSet.iterate_lte_ne_eq_pops(atmos, direct=True)
 
     # Configure the Context which holds the state of the simulation for the  backend, and provides 
     # the python interface to the backend.
@@ -163,24 +122,33 @@ class tags(IntEnum):
     EXIT = 2
     START = 3
 
-def slice_tasks(atmosarr, task_start, grain_size):
-    # atmosarr : NA x NP x NZ array of atmospheres coming from SIR, SNAPI, MURAM, whatever
+def slice_tasks(atmosin, task_start, grain_size):
     
-    task_end = min(task_start + grain_size, atmosarr.shape[0])
+    task_end = min(task_start + grain_size, atmosin['T'].shape[0])
+
+    #print (task_end)
     
     sl = slice(task_start, task_end) # this is a slice object, allowing us to access the specific thingy
+    
+    #print (sl)
     data = {}
     data['taskGrainSize'] = task_end - task_start
-    data['z'] =           atmosarr[sl,0,:]
-    data['temperature'] = atmosarr[sl,1,:]
-    data['pg'] =          atmosarr[sl,2,:]
-    data['vlos'] =        atmosarr[sl,3,:]
+
+    if (len(atmosin['z'].shape)==1): # if it is just 1D 
+        data['z'] = atmosin['z']
+    else:
+        data['z'] = atmosin['z'][sl,:]
+
+    #print (data['z']/1E3)
+    data['temperature'] = atmosin['T'][sl,:]
+    data['pg'] =          atmosin['p'][sl,:]
+    data['vlos'] =        atmosin['vz'][sl,:]
 
     # If we are Stokes, means we have magnetic field too:
-    if (atmosarr.shape[1] == 7):
-        data['B'] =   atmosarr[sl,4,:]
-        data['inc'] = atmosarr[sl,5,:]
-        data['azi'] = atmosarr[sl,6,:]
+    if (stokes):
+        data['B'] =   atmosin['B'][sl,:]
+        data['inc'] = atmosin['theta'][sl,:]
+        data['azi'] = atmosin['phi'][sl,:]
 
     return data
 
@@ -188,9 +156,8 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     """ Function to define the work to do by the overseer """
 
     # Reshape the atmosphere:
-    NX, NY, NP, NZ = atmosarr.shape
-    atmosarr = atmosarr.reshape(NX*NY, NP, NZ)
-    print("info::overseer::new atmos shape = ", NX*NY)
+    NX,NY,NZ = atmosarr["T"].shape
+    atmosarr = flatten_atmosarr(atmosarr, stokes)
     
     # Index of the task to keep track of each job
     task_index = 0
@@ -203,7 +170,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     task_start_idx = [] # no idea
     task_writeback_range = [] # no idea
     
-    cdf_size = atmosarr.shape[0]
+    cdf_size = atmosarr["T"].shape[0]
     print("info::overseer::cdf_size = ", cdf_size)
 
     num_cdf_tasks = int(np.ceil(cdf_size / task_grain_size)) # number of tasks = roundedup number of pixels / grain
@@ -294,19 +261,19 @@ def worker_work(rank):
         if tag == tags.START:
             # Receive the Radyn atmosphere
             task_index = data_in['index'] # I think we need this? - for what though (to keep track of what succeeeded where)
-            z = data_in['z'] # Can, in principle, be different
-            temperature = data_in['temperature']
-            vlos = data_in['vlos']
-            pg = data_in['pg']
+            z = data_in['z'].astype(float) # Can, in principle, be different
+            temperature = data_in['temperature'].astype(float)
+            vlos = data_in['vlos'].astype(float)
+            pg = data_in['pg'].astype(float)
             task_size = data_in['taskGrainSize']
-            wave = data_in['wave']
+            wave = data_in['wave'].astype(float)
             ND = temperature.shape[-1]
             stokes = data_in['stokes']
 
             if (stokes):
-                B = data_in['B']
-                inc = data_in['inc']
-                azi = data_in['azi']
+                B = data_in['B'].astype(float)
+                inc = data_in['inc'].astype(float)
+                azi = data_in['azi'].astype(float)
 
             
             ns = 1
@@ -363,14 +330,6 @@ if (__name__ == '__main__'):
 
     if rank == 0:
 
-        # Probably at some point we want to have this in a config input file or so
-        # -------------------------------------------------------------------
-        i_start = 0
-        i_end = 128
-        i_skip = 2
-        j_start = 0
-        j_end = 128
-        j_skip = 2
         # --------------------------------------------------------------------
         stokes = sys.argv[2].lower() == 'true'
         atmos_format = sys.argv[3]
@@ -378,26 +337,37 @@ if (__name__ == '__main__'):
         print("info::overseer::stokes mode is: ", stokes)
         if (atmos_format == 'mrmfx'):
             print("info:overseer: opening the atmosphere in simple muram format...")
-            atmosarr = load_muram_fixed_format(sys.argv[1])
+            atmosarr = load_muram_fixed_format(sys.argv[1],stokes)
             print("info:overseer: ...sucess!")
 
         elif (atmos_format == 'sir'):
             print("info:overseer: opening the atmosphere in SIR format...")
-            atmosarr = load_sir_format(sys.argv[1])
+            atmosarr = sir_format_loader(sys.argv[1],stokes)
             print("info:overseer: ...sucess!")
+        elif (atmos_format == 'muramb'):
+            print("info:overseer: opening the atmosphere in muram binary format...")
+            path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
+            atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,512,0,512,380,480], stokes)
+            print("info:overseer: ...sucess!")
+        elif (atmos_format == 'muramsb'):
+            print("info:overseer: opening the atmosphere in muram binary (sub) format...")
+            path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
+            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,512,0,512,0,121], stokes)
+            print("info:overseer: ...sucess!")
+        
         else:
             print("info:overseer: unknown file format. exiting..")
             exit();
 
-        atmosarr = atmosarr[i_start:i_end, j_start:j_end]
+        #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
         wave = np.linspace(525.00,525.04,81)
         #wave = np.linspace(630.1,630.3,201)
         
-        print("info::overseer::final atmos shape is: ", atmosarr.shape)
+        print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
-        overseer_work(atmosarr, wave, False, task_grain_size = 16)
+        overseer_work(atmosarr, wave, stokes, task_grain_size = 16)
     else:
         worker_work(rank)
         pass

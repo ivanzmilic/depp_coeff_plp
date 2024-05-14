@@ -13,6 +13,16 @@ import numpy as np
 import os.path
 from collections import OrderedDict
 
+def read_hmean(datapath, iteration):
+    filename = f"hmean1D.{iteration:06d}"
+    filepath = os.path.join(datapath, filename)
+    data = np.fromfile(filepath, dtype=np.float32)
+    Nvar = data[0].astype(int) # this is 1
+    shape = tuple(data[1:3].astype(int))
+    time = data[3]
+    Iout = data[4:].reshape([Nvar,shape[0]]).swapaxes(0,1)
+    return Iout, Nvar, shape[0], time
+
 def read_Iout(datapath, iteration):
     filename = f"I_out.{iteration:06d}"
     filepath = os.path.join(datapath, filename)
@@ -82,8 +92,8 @@ class MuramSlice(np.ndarray):
       time (float): Seconds since start of simulation
       rho (ndarray): density
       eint (ndarray): internal energy
-      T (ndarray): temperature
-      P (ndarray): pressure
+      Temp (ndarray): temperature
+      Pres (ndarray): pressure
       vx (ndarray): velocity in the x-direction
       vy (ndarray): velocity in the y-direction
       vz (ndarray): velocity in the z-direction
@@ -91,7 +101,7 @@ class MuramSlice(np.ndarray):
       By (ndarray): magnetic field in the y-direction
       Bz (ndarray): magnetic field in the z-direction
     """    
-    def __new__(cls, datapath, kind, ix, iteration, transpose=False):
+    def __new__(cls, datapath, iteration, kind, ix, transpose=False):
         sl, Nvar, shape, time = read_slice(datapath, iteration, kind, ix)
         if transpose:
             sl = np.transpose(sl, [0, 2, 1])
@@ -112,34 +122,28 @@ class MuramSlice(np.ndarray):
         #   enabled.  The real way to do this is to read the configuration and figure out
         #   what was really written out.
         if Nvar > 8:
-            # Note: unable to trvially override ndarray .T (transpose)
-            pass
+            self.Temp = self[8,:,:]
         if Nvar > 9:
-            self.P = self[9,:,:]
+            self.Pres = self[9,:,:]
         return self
-    
-    @property
-    def T(self):
-        # Note: this is necessary because ndarray .T (transpose)
-        # cannot be trivially overwritten
-        if self.shape[0] > 8:
-            return self[8,:,:]
-        else:
-            raise AttributeError
     
 class MuramTauSlice(MuramSlice):
     """Slice at a constant optical depth"""
-    def __new__(cls, datapath, tau, iteration):
-        self = MuramSlice.__new__(cls, datapath, 'tau', f'{tau:05.3f}', iteration)
+    def __new__(cls, datapath, iteration, tau):
+        if(tau>=1e-3):
+            self = MuramSlice.__new__(cls, datapath, iteration,  'tau', f'{tau:05.3f}')
+        else:
+            self = MuramSlice.__new__(cls, datapath, iteration,  'tau', f'{tau:08.6f}')
         self.tau = tau
         return self
     
-    def __init__(self, datapath, tau, iteration):
+    def __init__(self, datapath, iteration, tau):
         """datapath (str): Path to a MURaM output directory containing xy_slice files
           tau (float): tau value for slice
           iteration (int): Iteration number
         """
         pass # this is for documentation only; actual instantiation done in __new__
+
 
 class MuramColumn:
     """Vertical column from an xy slice"""
@@ -159,9 +163,9 @@ class MuramColumn:
         self.By = xy_slice.By[:, yix]
         self.Bz = xy_slice.Bz[:, yix]
         if xy_slice.shape[0] > 8:
-            self.T = xy_slice.T[:, yix]
+            self.Temp = xy_slice.T[:, yix]
         if xy_slice.shape[0] > 9:
-            self.P = xy_slice.P[:, yix]
+            self.Pres = xy_slice.P[:, yix]
         
 class MuramXYSlice(MuramSlice):
     """Vertical slice at a constant z-index"""
@@ -209,37 +213,44 @@ class MuramCube(np.memmap):
         vamax (float):   Maximum Alfven velocity (TODO: varify)
     """
     _varmap = OrderedDict((('rho','result_prim_0'),
-                           ('vx','result_prim_1'),
-                           ('vy','result_prim_2'),
-                           ('vz','result_prim_3'),
-                           ('eint','result_prim_4'),
-                           ('Bx','result_prim_5'),
-                           ('By','result_prim_6'),
-                           ('Bz','result_prim_7'),
-                           ('sflx','result_prim_8'),
-                           ('T','eosT'),
-                           ('P','eosP'),
-                           ('ne','eosne'),
-                           ('amb','eosamb'),
-                           ('rhoi','eosrhoi'),
-                           ('Q','Qtot'),
-                           ('J','Jtot'),
-                           ('S','Stot'),
-                           ('tau','tau'),
-                           ('QxH','QxH'),
-                           ('QxCa','QxCa'),
-                           ('QxMg','QxMg'),
-                           ('QxCor','QxCor'),
-                           ('QxChr','QxChr'),
-                           ('Qres','Qres'),
-                           ('Qvis','Qvis'),
-                           ('Qamb','Qamb'),
-                           ('vA_x','vA_x'),
-                           ('vA_y','vA_y'),
-                           ('vA_z','vA_z'),
-                           ('vH_x','vH_x'),
-                           ('vH_y','vH_y'),
-                           ('vH_z','vH_z')))
+                       ('vx','result_prim_1'),
+                       ('vy','result_prim_2'),
+                       ('vz','result_prim_3'),
+                       ('eint','result_prim_4'),
+                       ('Bx','result_prim_5'),
+                       ('By','result_prim_6'),
+                       ('Bz','result_prim_7'),
+                       ('sflx','result_prim_8'),
+                       ('Temp','eosT'),
+                       ('Pres','eosP'),
+                       ('ne','eosne'),
+                       ('amb','eosamb'),
+                       ('rhoi','eosrhoi'),
+                       ('Q','Qtot'),
+                       ('J','Jtot'),
+                       ('S','Stot'),
+                       ('tau','tau'),
+                       ('QxH','QxH'),
+                       ('QxCa','QxCa'),
+                       ('QxMg','QxMg'),
+                       ('QxCor','QxCor'),
+                       ('QxChr','QxChr'),
+                       ('Qres','Qres'),
+                       ('Qvis','Qvis'),
+                       ('Qamb','Qamb'),
+                       ('tvar1','tvar1'),
+                       ('tvar2','tvar2'),  
+                       ('tvar3','tvar3'),
+                       ('tvar4','tvar4'),
+                       ('tvar5','tvar5'),  
+                       ('tvar6','tvar6'),
+                       ('tvar7','tvar7'),
+                       ('tvar8','tvar8'),      
+                       ('alpha','alpha'),
+                       ('dips','dips'),
+                       ('kappa_trac','kappa_trac'),
+                       ('jabs','jabs'),
+                       ('decay_ind','decay_ind')))
     
     varnames = tuple(_varmap.keys())
     
@@ -298,6 +309,107 @@ class MuramSnap():
         for var in MuramCube._varmap.keys():
             try:
                 cube = MuramCube(datapath, iteration, var)
+            except FileNotFoundError:
+                self.unavailable.append(var)
+                continue
+            setattr(self, var, cube)
+            self.available.append(var) 
+
+class MuramSubCube(np.memmap):
+    """A cube (x, y, z) of MURaM output
+    
+    This class inherits from NumPy memmap and uses that to reprresent the data.  The data is 
+    not loaded into memory, it is kept on file and read in as required.  For example, 
+    indexing cube[:,0,0] will read and return a column of data at the coordinate y=0, z=0, 
+    without ever reading the whole cube into memory.  If in-memory data is desired, use 
+    .copy().
+    
+    Note that the first dimension (x) is the vertical component.
+    
+    Args:
+      datapath (str):   Path to a MURaM output directory containing data cubes
+      iteration (int):  iteration number
+      var (str):        variable name (e.g. 'rho'). See MuramCube.varnames for a list
+
+    Attributes:
+        var (str):       Name of the variable the cube represnets (e.g. 'rho')
+        filepath (str):  Path t the data file
+        iteration (int): iteration number
+        dX (ndarray):    Pixel scale in cm for x, y, z dimensions
+        X (ndarray):     Domain size in cm for x, y, z dimensions
+        time (float):    Seconds since start of simulation
+        vamax (float):   Maximum Alfven velocity (TODO: varify)
+    """
+    _varmap = OrderedDict((('rho','subdomain_0'),
+                       ('vx','subdomain_1'),
+                       ('vy','subdomain_2'),
+                       ('vz','subdomain_3'),
+                       ('eint','subdomain_4'),
+                       ('Bx','subdomain_5'),
+                       ('By','subdomain_6'),
+                       ('Bz','subdomain_7'),
+                       ('Temp','subdomain_8'),
+                       ('Pres','subdomain_9'),
+                       ('ne','subdomain_10'),
+                       ('tau','subdomain_11')))
+    
+    varnames = tuple(_varmap.keys())
+    
+    def _read_header(datapath, iteration):
+        filename = f"Header_Sub.{iteration:06d}"
+        filepath = os.path.join(datapath, filename)
+        header = np.loadtxt(filepath, dtype=np.float32)
+        shape = header[0:3].astype(int)
+        dX = header[3:6] # cm; pixel size
+        X = shape * dX # cm; domain size
+        time = header[6] # s; time since t=0
+        dtime = header[7] # s; timestep
+        vamax = header[8] # TODO: what is this? Alfven velocity?
+        return shape, dX, X, time, dtime, vamax
+    
+    def _filepath(datapath, iteration, var):
+        filepre = MuramSubCube._varmap[var]
+        filename = f"{filepre}.{iteration:06d}"
+        filepath = os.path.join(datapath, filename)
+        return filepath
+    
+    def __new__(cls, datapath, iteration, var):
+        shape, dX, X, time, dtime, vamax = cls._read_header(datapath, iteration)
+        filepath = cls._filepath(datapath, iteration, var)
+        # Note: binary data index order is (z, y, x). Here we reverse the true shape 
+        # to reflect that, then transpose the data in reverse index order to be (x, y, z)
+        self = np.memmap(filepath, mode='r', dtype=np.float32,
+                         shape=tuple(shape[::-1])).transpose(2, 1, 0)
+        self.var = var
+        self.filepath = filepath
+        self.iteration = iteration
+        self.dX = dX
+        self.X = X
+        self.time = time
+        self.dtime = dtime
+        self.vamax = vamax
+        return self
+    
+class MuramSubSnap():
+    """Snapshot of MURaM output; a collection of data cubes
+
+    This class prepares MuramCube objects for each known output type that is found 
+    in the data directory for the given iteration.  The MuramCube objects are available 
+    as class attributes with the same name as found in MuramCube.varnames.  Variable 
+    types which are not found are silently ignored and the attribute will not be available.  
+    The 'available' and 'unavailable' attributes contain lists of variables which were 
+    found or not found, respectively.
+    
+    Args:
+      datapath (str):   Path to a MURaM output directory containing data cubes
+      iteration (int):  iteration number
+    """
+    def __init__(self, datapath, iteration):
+        self.available = []
+        self.unavailable = []
+        for var in MuramSubCube._varmap.keys():
+            try:
+                cube = MuramSubCube(datapath, iteration, var)
             except FileNotFoundError:
                 self.unavailable.append(var)
                 continue
