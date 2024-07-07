@@ -72,7 +72,7 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	# Loads the binary files from a muram file, and puts them into a suitable numpy array 
 	# to feed into lw
 
-	T = mio.MuramCube(path, iter, 'T')
+	T = mio.MuramCube(path, iter, 'Temp')
 	T = T.transpose(2,1,0)
 
 	print ("info::muram_binary_loader::the original dimensions are: ", T.shape)
@@ -97,12 +97,12 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 
 	skip = 4
 
-	T = mio.MuramCube(path, iter, 'T')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
+	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	Tc = np.copy(T)
 	Tc[np.where(T<3000.0)] = 3000.0
 	Tc[np.where(T>50000.0)] = 50000.0
 	z = np.arange(zmax-zmin) * 16E3
-	p = mio.MuramCube(path, iter, 'P')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
+	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	data = {}
 	data["dims"] = np.array([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
