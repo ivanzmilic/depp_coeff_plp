@@ -245,7 +245,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     spechdu = fits.PrimaryHDU(spectra)
     wavhdu = fits.ImageHDU(wave)
     to_output = fits.HDUList([spechdu, wavhdu])
-    to_output.writeto(sys.argv[1][:-5]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
+    to_output.writeto(sys.argv[1]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
 
     
 def worker_work(rank):
@@ -351,8 +351,8 @@ if (__name__ == '__main__'):
             print("info:overseer: ...sucess!")
         elif (atmos_format == 'muramsb'):
             print("info:overseer: opening the atmosphere in muram binary (sub) format...")
-            path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
-            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,512,0,512,0,121], stokes)
+            path = '/home/milic/data/ISSI_trackings/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/3D'
+            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,1536,0,1536 ,0,121], stokes)
             print("info:overseer: ...sucess!")
         
         else:
