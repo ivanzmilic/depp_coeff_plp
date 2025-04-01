@@ -245,7 +245,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     spechdu = fits.PrimaryHDU(spectra)
     wavhdu = fits.ImageHDU(wave)
     to_output = fits.HDUList([spechdu, wavhdu])
-    to_output.writeto(sys.argv[1]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
+    to_output.writeto(sys.argv[1]+sys.argv[3]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
 
     
 def worker_work(rank):
@@ -328,13 +328,20 @@ if (__name__ == '__main__'):
 
     #print(f"Node {rank}/{size} active", flush=True)
 
-    if rank == 0:
+    if rank == 0: # If I am the overseer process
 
         # --------------------------------------------------------------------
-        stokes = sys.argv[2].lower() == 'true'
-        atmos_format = sys.argv[3]
+        path = sys.argv[1] # path where the data is
+        filename = sys.argv[2] # characteristic naming for the files, used differently depending on what 
+                               # kind of simulation we are working with 
+        number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
+        atmos_format = sys.argv[4] # format name - see below
+        stokes = sys.argv[5].lower() == 'true' # whether to synthesize Stokes I or all 4 components
+        
         atmosarr = 0
+        
         print("info::overseer::stokes mode is: ", stokes)
+        
         if (atmos_format == 'mrmfx'):
             print("info:overseer: opening the atmosphere in simple muram format...")
             atmosarr = load_muram_fixed_format(sys.argv[1],stokes)
@@ -344,15 +351,16 @@ if (__name__ == '__main__'):
             print("info:overseer: opening the atmosphere in SIR format...")
             atmosarr = sir_format_loader(sys.argv[1],stokes)
             print("info:overseer: ...sucess!")
+        
         elif (atmos_format == 'muramb'):
             print("info:overseer: opening the atmosphere in muram binary format...")
-            path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
-            atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,512,0,512,380,480], stokes)
+            atmosarr = muram_binary_loader(path, number, [0,256,0,256,380,480], stokes)
             print("info:overseer: ...sucess!")
+        
         elif (atmos_format == 'muramsb'):
             print("info:overseer: opening the atmosphere in muram binary (sub) format...")
-            path = '/home/milic/data/ISSI_trackings/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/3D'
-            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,1536,0,1536 ,0,121], stokes)
+            # for this format we don't need filename
+            atmosarr = muram_binary_loader_sub(path, number, [0,256,0,256 ,0,121], stokes)
             print("info:overseer: ...sucess!")
         
         else:

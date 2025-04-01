@@ -6,7 +6,7 @@ import sys
 import muram as mio
 import muram as muram
 
-def muram_binary_loader_sub(path,iter,ranges,stokes=False):
+def muram_binary_loader_sub(path,iter,ranges =[],stokes=False):
 
 	# Loads the output of a subsnap of a muram simulation into an array:
 
@@ -95,7 +95,7 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-	skip = 4
+	skip = 2
 
 	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	Tc = np.copy(T)

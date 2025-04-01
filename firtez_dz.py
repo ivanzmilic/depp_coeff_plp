@@ -16,7 +16,7 @@ from matplotlib import ticker
 pl.ion()
 #
 pl.rcParams.update({'font.size':15})
-pl.rcParams.update({'text.usetex':False})
+pl.rcParams.update({'text.usetex':True})
 pl.rcParams['xtick.minor.visible'] = True
 pl.rcParams['ytick.minor.visible'] = True
 #
@@ -523,7 +523,7 @@ class stk_profile3D(object):
     
     
     fg.tight_layout()
-    pl.show()
+    pl.show(block=True)
 
     if (autofigsize==1):
       pl.rcParams['figure.figsize']=(xs,ys)
@@ -730,7 +730,7 @@ def compare_tv(stokes, pars, waves, fignum=1\
   
   
   fg.tight_layout()
-  pl.show()
+  pl.show(block=True)
 
   if (autofigsize==1):
     pl.rcParams['figure.figsize']=(xs,ys)
@@ -919,7 +919,7 @@ def read_model(fname, fmt_type=np.float32, devel=False):
   
     npar, nx, ny, nz = np.int64(dims)
   
-    if (np.abs(npar-15.) > 1.e-3):
+    if (np.abs(npar-16.) > 1.e-3):
       print('Something is wrong with the file %s' % fname)
       print('\tIs it a 3D model file?')
       return np.nan
@@ -988,16 +988,18 @@ def read_model(fname, fmt_type=np.float32, devel=False):
       elif (ipar==8):
         model3D.set_vz(to_store.reshape(nx,ny,nz))
       elif (ipar==9):
+        model3D.set_vmic(to_store.reshape(nx,ny,nz))
+      elif (ipar==10):
         model3D.set_tau(to_store.reshape(nx,ny,nz))
-      elif ((model3D.full==True) & (ipar==10)):
-        model3D.set_pel(to_store.reshape(nx,ny,nz))
       elif ((model3D.full==True) & (ipar==11)):
-        model3D.set_mw(to_store.reshape(nx,ny,nz))
+        model3D.set_pel(to_store.reshape(nx,ny,nz))
       elif ((model3D.full==True) & (ipar==12)):
-        model3D.set_x(to_store.reshape(nx,ny,nz))
+        model3D.set_mw(to_store.reshape(nx,ny,nz))
       elif ((model3D.full==True) & (ipar==13)):
+        model3D.set_x(to_store.reshape(nx,ny,nz))
+      elif ((model3D.full==True) & (ipar==14)):
           model3D.set_y(to_store.reshape(nx,ny,nz))
-      elif (ipar==14):
+      elif (ipar==15):
         model3D.set_z(to_store.reshape(nx,ny,nz))
       # Update physical parameter:
       ipar +=1
@@ -1014,7 +1016,7 @@ def read_model(fname, fmt_type=np.float32, devel=False):
   
     npar, nx, ny, nz = np.int64(dims)
    
-    if (np.abs(npar-15.) > 1.e-3):
+    if (np.abs(npar-16.) > 1.e-3):
       print('Something is wrong with the file %s' % fname)
       print('\tIs it a 3D model file?')
       return np.nan
@@ -1084,6 +1086,7 @@ class atm_model3D(object):
     self.vx = np.zeros((self.nx, self.ny, self.nz))
     self.vy = np.zeros((self.nx, self.ny, self.nz))
     self.vz = np.zeros((self.nx, self.ny, self.nz))
+    self.vmic = np.zeros((self.nx, self.ny, self.nz))
     self.tau = np.zeros((self.nx, self.ny, self.nz))
     self.z = np.zeros((self.nx, self.ny, self.nz))
     if (full==True):
@@ -1117,6 +1120,7 @@ class atm_model3D(object):
     cmaps['vx']='seismic'
     cmaps['vy']='seismic'
     cmaps['vz']='seismic'
+    cmaps['vmic']='seismic'
     cmaps['pel']='viridis'
     cmaps['mw']='viridis'
     cmaps['tau']='viridis'
@@ -1135,6 +1139,7 @@ class atm_model3D(object):
     cscale['vx']='linear'
     cscale['vy']='linear'
     cscale['vz']='linear'
+    cscale['vmic']='linear'
     cscale['pel']='log'
     cscale['mw']='linear'
     cscale['tau']='linear'
@@ -1153,6 +1158,7 @@ class atm_model3D(object):
     factor['vx']=1.e-5
     factor['vy']=1.e-5
     factor['vz']=1.e-5
+    factor['vmic']=1.e-5
     factor['pel']=1.e0
     factor['mw']=1.e0
     factor['tau']=1.e0
@@ -1171,6 +1177,7 @@ class atm_model3D(object):
     symmetry['vx']=True
     symmetry['vy']=True
     symmetry['vz']=True
+    symmetry['vmic']=True
     symmetry['pel']=False
     symmetry['mw']=False
     symmetry['tau']=False
@@ -1189,6 +1196,7 @@ class atm_model3D(object):
     label['vx']=r'v$_{x}$ [km/s]'
     label['vy']=r'v$_{y}$ [km/s]'
     label['vz']=r'v$_{z}$ [km/s]'
+    label['vmic']=r'v$_{\rm mic}$ [km/s]'
     label['pel']=r'P$_{el}$ [dyn?/cm$^2$]'
     label['mw']=r'$\mu$'
     label['tau']=r'$\lg\tau_{5}$'
@@ -1263,6 +1271,9 @@ class atm_model3D(object):
   def set_vz(self,array, axis=-1):
     self.set_attribute(array, 'vz', axis)
     return
+  def set_vmic(self,array, axis=-1):
+    self.set_attribute(array, 'vmic', axis)
+    return
 
   def set_pel(self,array, axis=-1):
     self.set_attribute(array, 'pel', axis)
@@ -1309,13 +1320,14 @@ class atm_model3D(object):
     self.set_vx(array[6,:,:,:])
     self.set_vy(array[7,:,:,:])
     self.set_vz(array[8,:,:,:])
-    self.set_tau(array[9,:,:,:])
+    self.set_vmic(array[9,:,:,:])
+    self.set_tau(array[10,:,:,:])
     if (self.full==True):
-      self.set_x(array[12,:,:,:])
-      self.set_y(array[13,:,:,:])
-      self.set_pel(array[10,:,:,:])
-      self.set_mw(array[11,:,:,:])
-    self.set_z(array[14,:,:,:])
+      self.set_x(array[13,:,:,:])
+      self.set_y(array[14,:,:,:])
+      self.set_pel(array[11,:,:,:])
+      self.set_mw(array[12,:,:,:])
+    self.set_z(array[15,:,:,:])
 
     return
 
@@ -1326,7 +1338,7 @@ class atm_model3D(object):
     def set_to_write(obj,v=None):
   
       if (v==None):
-        array = np.zeros((15, obj.nz, obj.ny, obj.nx))
+        array = np.zeros((16, obj.nz, obj.ny, obj.nx))
   
         array[0,:,:,:] = obj.tem.T * 1.
         array[1,:,:,:] = obj.pg.T * 1.
@@ -1337,15 +1349,16 @@ class atm_model3D(object):
         array[6,:,:,:] = obj.vx.T * 1.
         array[7,:,:,:] = obj.vy.T * 1.
         array[8,:,:,:] = obj.vz.T * 1.
-        array[9,:,:,:] = obj.tau.T * 1.
-        array[14,:,:,:] = obj.z.T * 1.
+        array[9,:,:,:] = obj.vmic.T * 1.
+        array[10,:,:,:] = obj.tau.T * 1.
+        array[15,:,:,:] = obj.z.T * 1.
         if (obj.full==True):
-          array[10,:,:,:] = obj.pel.T * 1.
-          array[11,:,:,:] = obj.mw.T * 1.
-          array[12,:,:,:] = obj.x.T * 1.
-          array[13,:,:,:] = obj.y.T * 1.
+          array[11,:,:,:] = obj.pel.T * 1.
+          array[12,:,:,:] = obj.mw.T * 1.
+          array[13,:,:,:] = obj.x.T * 1.
+          array[14,:,:,:] = obj.y.T * 1.
       elif(v==3):
-        array = np.zeros((15, obj.nx, obj.ny, obj.nz))
+        array = np.zeros((16, obj.nx, obj.ny, obj.nz))
   
         array[0,:,:,:] = obj.tem * 1.
         array[1,:,:,:] = obj.pg * 1.
@@ -1356,13 +1369,14 @@ class atm_model3D(object):
         array[6,:,:,:] = obj.vx * 1.
         array[7,:,:,:] = obj.vy * 1.
         array[8,:,:,:] = obj.vz * 1.
-        array[9,:,:,:] = obj.tau * 1.
-        array[14,:,:,:] = obj.z * 1.
+        array[9,:,:,:] = obj.vmic * 1.
+        array[10,:,:,:] = obj.tau * 1.
+        array[15,:,:,:] = obj.z * 1.
         if (obj.full==True):
-          array[10,:,:,:] = obj.pel * 1.
-          array[11,:,:,:] = obj.mw * 1.
-          array[12,:,:,:] = obj.x * 1.
-          array[13,:,:,:] = obj.y * 1.
+          array[11,:,:,:] = obj.pel * 1.
+          array[12,:,:,:] = obj.mw * 1.
+          array[13,:,:,:] = obj.x * 1.
+          array[14,:,:,:] = obj.y * 1.
   
       return array
 
@@ -1459,7 +1473,7 @@ class atm_model3D(object):
 
     new_model = atm_model3D(self.nx, self.ny, new_nz)
 
-    narray = np.zeros((15, self.nx, self.ny, new_nz))
+    narray = np.zeros((16, self.nx, self.ny, new_nz))
     for it_nx in range(self.nx):
       for it_ny in range(self.ny):
 
@@ -1490,22 +1504,25 @@ class atm_model3D(object):
         f = interp1d(old_z, self.vz[it_nx, it_ny, :]\
             , kind=kind, fill_value=fill_value)
         narray[8, it_nx, it_ny, :] = f(new_z)
-        f = interp1d(old_z, self.pel[it_nx, it_ny, :]\
-            , kind=kind, fill_value=fill_value)
-        narray[10, it_nx, it_ny, :] = f(new_z)
-        f = interp1d(old_z, self.mw[it_nx, it_ny, :]\
-            , kind=kind, fill_value=fill_value)
-        narray[11, it_nx, it_ny, :] = f(new_z)
-        f = interp1d(old_z, self.tau[it_nx, it_ny, :]\
+        f = interp1d(old_z, self.vmic[it_nx, it_ny, :]\
             , kind=kind, fill_value=fill_value)
         narray[9, it_nx, it_ny, :] = f(new_z)
-        f = interp1d(old_z, self.x[it_nx, it_ny, :]\
+        f = interp1d(old_z, self.pel[it_nx, it_ny, :]\
+            , kind=kind, fill_value=fill_value)
+        narray[11, it_nx, it_ny, :] = f(new_z)
+        f = interp1d(old_z, self.mw[it_nx, it_ny, :]\
             , kind=kind, fill_value=fill_value)
         narray[12, it_nx, it_ny, :] = f(new_z)
-        f = interp1d(old_z, self.y[it_nx, it_ny, :]\
+        f = interp1d(old_z, self.tau[it_nx, it_ny, :]\
+            , kind=kind, fill_value=fill_value)
+        narray[10, it_nx, it_ny, :] = f(new_z)
+        f = interp1d(old_z, self.x[it_nx, it_ny, :]\
             , kind=kind, fill_value=fill_value)
         narray[13, it_nx, it_ny, :] = f(new_z)
-        narray[14, it_nx, it_ny, :] = new_z * 1.
+        f = interp1d(old_z, self.y[it_nx, it_ny, :]\
+            , kind=kind, fill_value=fill_value)
+        narray[14, it_nx, it_ny, :] = f(new_z)
+        narray[15, it_nx, it_ny, :] = new_z * 1.
 
     new_model.set_atmosphere(narray)
 
@@ -1523,6 +1540,8 @@ class atm_model3D(object):
     new_model.set_vx(self.vx)
     new_model.set_vy(self.vy)
     new_model.set_vz(self.vz)
+    new_model.set_vmic(self.vmic)
+
     new_model.set_pel(self.pel)
     new_model.set_mw(self.mw)
     new_model.set_tau(self.tau)
@@ -1546,7 +1565,7 @@ class atm_model3D(object):
     dy = new_model.ny-self.ny
     dz = new_model.nz-self.nz
     pars = ['tem', 'pg', 'rho', 'bx', 'by', 'bz', 'vx', 'vy', 'vz' \
-        , 'pel', 'mw', 'tau', 'x', 'y', 'z']
+        , 'vmic', 'pel', 'mw', 'tau', 'x', 'y', 'z']
     for itn, itp in enumerate(pars):
       #
       dum = getattr(self, itp)
@@ -1626,7 +1645,7 @@ class atm_model3D(object):
 
     new_model = atm_model3D(*tuple(new_tdims))
     pars = ['tem', 'pg', 'rho', 'bx', 'by', 'bz', 'vx', 'vy', 'vz' \
-        , 'pel', 'mw', 'tau', 'x', 'y', 'z']
+        , 'vmic', 'pel', 'mw', 'tau', 'x', 'y', 'z']
     for itn, itp in enumerate(pars):
       dum = getattr(self, itp)
       ndum = dum[new_dims[0][0]:new_dims[0][1],new_dims[1][0]:new_dims[1][1],new_dims[2][0]:new_dims[2][1]]
@@ -1793,7 +1812,7 @@ class atm_model3D(object):
     
     
     fg.tight_layout()
-    pl.show()
+    pl.show(block=True)
 
     if (autofigsize==1):
       pl.rcParams['figure.figsize']=(xs,ys)
@@ -1808,7 +1827,7 @@ class atm_model3D(object):
 #
 def plot_models(models, pars=['all'],fnum=1,itx=[0,],ity=[0,], axis='t', labels=[] \
     , rangex=[], zorigin=False, displaytau=True \
-    , skwargs={}, pargs=(), pkargs={}, fkwargs={}):
+    , skwargs={}, pargs=(), pkargs={}, fkwargs={}): 
 
   # Define some functions for this particular function:
 
@@ -1880,7 +1899,7 @@ def plot_models(models, pars=['all'],fnum=1,itx=[0,],ity=[0,], axis='t', labels=
 
   if (pars[0]=='all'):
     pars = ['tem', 'pg', 'rho', 'bx', 'by', 'bz', 'vx', 'vy', 'vz' \
-        , 'pel', 'mw', 'tau', 'x', 'y', 'z']
+        , 'vmic', 'pel', 'mw', 'tau', 'x', 'y', 'z']
 
   if ( (len(rangex)!=0) & (len(rangex)!=2) ):
     print('rangex must be a list of two elements or not supplied')
@@ -1951,7 +1970,6 @@ def plot_models(models, pars=['all'],fnum=1,itx=[0,],ity=[0,], axis='t', labels=
       lrangex = np.min(xtoplot)
     if (np.max(xtoplot)>urangex):
       urangex = np.max(xtoplot)
-  
     for it_nnn in range(len(itx)):
 
       it_xtoplot = xtoplot[itx[it_nnn],ity[it_nnn],:]
@@ -2034,21 +2052,21 @@ def plot_models(models, pars=['all'],fnum=1,itx=[0,],ity=[0,], axis='t', labels=
         if ( (var > 0.01) & (np.abs(var) != np.inf) & (var==var) ):
           ax[it_xxx, it_yyy].set_ylim(ylims[0,it_xxx, it_yyy], ylims[1,it_xxx, it_yyy])
   # Tau bar and z origin if z plot:
-  if (axis=='z'):
-    htau = [0.,-1.,-2.,-3.]
-    for it_xxx in range(nrows):
-      for it_yyy in range(ncols):
-        if (zorigin==True):
-          ax[it_xxx, it_yyy].axvline(1., color=(0.6,0.6,0.6), linewidth=1., linestyle='--')
-    if (displaytau==True):
-      cnt=-1
-      for itn, self in enumerate(models):
-        for it_nnn in range(len(itx)):
-          cnt+=1
-          it_px = self.z[itx[it_nnn],ity[it_nnn],:] * 1.e-3
-          it_py = self.tau[itx[it_nnn],ity[it_nnn],:] * 1.
-          #
-          oplot_tau_axis(fax[0], it_py, it_px+zoffsets[itn,it_nnn], htau, 0.95-0.05*cnt, used_colors[cnt])
+  #if (axis=='z'):
+  #  htau = [0.,-1.,-2.,-3.]
+  #  for it_xxx in range(nrows):
+  #    for it_yyy in range(ncols):
+  #      if (zorigin==True):
+  #        ax[it_xxx, it_yyy].axvline(1., color=(0.6,0.6,0.6), linewidth=1., linestyle='--')
+  #  if (displaytau==True):
+  #    cnt=-1
+  #    for itn, self in enumerate(models):
+  #      for it_nnn in range(len(itx)):
+  #        cnt+=1
+  #        it_px = self.z[itx[it_nnn],ity[it_nnn],:] * 1.e-3
+  #        it_py = self.tau[itx[it_nnn],ity[it_nnn],:] * 1.
+  #        #
+  #        oplot_tau_axis(fax[0], it_py, it_px+zoffsets[itn,it_nnn], htau, 0.95-0.05*cnt, used_colors[cnt])
   # Legend:
   if (show_labels):
     if (axestorem>0):
@@ -2167,6 +2185,7 @@ class stk_rf3D(object):
     self.rf_by = np.zeros((dnx, dny, dnz, dnw, dns))
     self.rf_bz = np.zeros((dnx, dny, dnz, dnw, dns))
     self.rf_vz = np.zeros((dnx, dny, dnz, dnw, dns))
+    self.rf_vmic = np.zeros((dnx, dny, dnz, dnw, dns))
     self.rf_p0 = np.zeros((dnx, dny, dnz, dnw, dns))
 
     return
@@ -2218,6 +2237,11 @@ class stk_rf3D(object):
     self.rf_vz = self.rf_vz * 0. + array * 1.
     return
 
+  def set_rf_vmic(self,array):
+    self.rf_vmic = np.zeros((self.nx, self.ny, self.nz, self.nw, self.ns))
+    self.rf_vmic = self.rf_vmic * 0. + array * 1.
+    return
+
   def set_rf_p0(self,array):
     self.rf_p0 = np.zeros((self.nx, self.ny, self.nz, self.nw, self.ns))
     self.rf_p0 = self.rf_p0 * 0. + array * 1.
@@ -2238,16 +2262,8 @@ class stk_rf3D(object):
       print('Wrong format')
       return
 
-    pars = [\
-        'tem'
-        , 'pg'
-        , 'rho'
-        , 'bx'
-        , 'by'
-        , 'bz'
-        , 'vz'
-        , 'p0']
-
+    pars = ['tem', 'pg', 'rho', 'bx', 'by', 'bz', 'vz', 'vmic', 'p0']
+    
     cnt = -1
     for itn,itd in enumerate(logic):
       if (np.abs(itd-1.)<1.e-5):
@@ -2267,6 +2283,8 @@ class stk_rf3D(object):
         if (itn==6):
           self.set_rf_vz(array[:,:,:,:,:,cnt])
         if (itn==7):
+          self.set_rf_vmic(array[:,:,:,:,:,cnt])
+        if (itn==8):
           self.set_rf_p0(array[:,:,:,:,:,cnt])
 
     return
@@ -2537,8 +2555,13 @@ def write_lsf(fname, data, fmt_type=np.float32):
   
   # We write single precision numbers: 32 bits
   # This is 4 bytes
-
   nw=data.size
+  # normalize and re-center
+  ns=nw//2
+  data=data/np.sum(data)
+  datan=np.roll(data,-ns,axis=0)
+  data=datan
+  #
   nnum_to_write = 4. * nw
   nbyts_to_write = nnum_to_write * 4.
   
@@ -2547,8 +2570,8 @@ def write_lsf(fname, data, fmt_type=np.float32):
   nnum_max_frec = nbyts_max_frec / 4.
   
   # We set the maximum number of fortran rec to actual_max-10:
-  nnum_rec = np.int(nnum_max_frec - 10.)
-  nrecs_to_write = np.int(np.ceil(nnum_to_write/nnum_rec))
+  nnum_rec = int(nnum_max_frec - 10.)
+  nrecs_to_write = int(np.ceil(nnum_to_write/nnum_rec))
   
   # FIRST, WE WRITE A FIRST RECORD WITH THE MANDATORY DATA:
   towrite = np.zeros(6, dtype=fmt_type)
@@ -2578,3 +2601,321 @@ def write_lsf(fname, data, fmt_type=np.float32):
   return
 
 
+def write_psf_v2(fname, data, dx, dy, fmt_type=np.float32):
+
+  idd = 161906
+  v=2
+  
+  if (fmt_type != np.float32):
+    print('Not implemented yet!')
+    return np.nan
+  
+  # We write single precision numbers: 32 bits
+  # This is 4 bytes
+  nx,ny = np.shape(data)
+  nw=nx*ny
+  nnum_to_write = 4. * nw
+  nbyts_to_write = nnum_to_write * 4.
+  
+  # The maximum size of a fortran record is 2Gb
+  nbyts_max_frec = 2. * 1024. * 1024. * 1024.
+  nnum_max_frec = nbyts_max_frec / 4.
+  
+  # We set the maximum number of fortran rec to actual_max-10:
+  nnum_rec = int(nnum_max_frec - 10.)
+  nrecs_to_write = int(np.ceil(nnum_to_write/nnum_rec))
+  print(nrecs_to_write,nnum_to_write,nnum_rec)
+  
+  # FIRST, WE WRITE A FIRST RECORD WITH THE MANDATORY DATA:
+  towrite = np.zeros(9, dtype=fmt_type)
+  
+  towrite[0] = 3000 + v
+  towrite[1] = 3000 - v
+  towrite[2] = idd * 1.
+  towrite[3] = nrecs_to_write+1
+  towrite[4] = 2.  # NUMBER OF DIMENSIONS
+  towrite[5] = nx * 1.
+  towrite[6] = ny * 1.
+  towrite[7] = dx * 1.
+  towrite[8] = dy * 1.
+  #
+  print("The header looks like:",towrite[:])
+
+  #OPEN WRITING FILE:
+  f=FortranFile(fname,'w')
+  f.write_record(np.float32(towrite))
+  #         SET OF DATA:
+  offset = 0
+  for it_nnn in range(nrecs_to_write):
+    if (it_nnn != nrecs_to_write - 1):
+      towrite = data[offset:offset+nnum_rec] * 1.
+    else:
+      towrite = data[offset:] * 1.
+    f.write_record(np.float32(towrite))
+    offset=offset+nnum_rec
+  # CLOSE IT
+  f.close()
+  
+  return
+
+
+def write_psf_v1(fname, data, dx, dy, fmt_type=np.float32):
+
+  idd = 161906
+  v=1
+  
+  if (fmt_type != np.float32):
+    print('Not implemented yet!')
+    return np.nan
+
+  
+  nx,ny=np.shape(data)
+  data=data/np.sum(data)
+  print(np.sum(data),nx,ny)
+  
+
+  # FIRST, WE WRITE A FIRST RECORD WITH THE MANDATORY DATA:
+  towrite = np.zeros(9, dtype=fmt_type)
+  
+  towrite[0] = 3000 + v
+  towrite[1] = 3000 - v
+  towrite[2] = idd * 1.
+  towrite[3] = 2
+  towrite[4] = 2.  # NUMBER OF DIMENSIONS
+  towrite[5] = nx * 1.
+  towrite[6] = ny * 1.
+  towrite[7] = dx * 1.
+  towrite[8] = dy * 1.
+  #
+  print("The header looks like:",towrite[:])
+
+  #OPEN WRITING FILE:
+  f=FortranFile(fname,'w')
+  f.write_record(np.float32(towrite))
+  #         SET OF DATA:
+  f.write_record(np.float32(data))
+  # CLOSE IT
+  f.close()
+  
+  return
+
+
+###########################
+
+def write_beta_atom(fname, beta_low, beta_upp, fmt_type=np.float32):
+  
+  if (fmt_type != np.float32):
+    print('Not implemented yet!')
+    return np.nan
+
+  nx1,ny1,nz1=np.shape(beta_low)
+  nx2,ny2,nz2=np.shape(beta_upp)
+
+  if (nx1 != nx2):
+    print('X dimension of lower and upper departure coefficients do not agree!')
+    return np.nan
+
+  if (ny1 != ny2):
+    print('Y dimension of lower and upper departure coefficients do not agree!')
+    return np.nan
+
+  if (nz1 != nz2):
+    print('Z dimension of lower and upper departure coefficients do not agree!')
+    return np.nan 
+
+  nx1f=1.0*nx1
+  ny1f=1.0*ny1
+  nz1f=1.0*nz1
+
+  if (nx1f*ny1f*nz1f*4.0 > 2.0*1024.0*1024.0*1024.0):
+    print('Size of a fortran record cannot be larger than 2 Gb !')
+    return np.nan
+          
+  # FIRST, WE WRITE A FIRST RECORD WITH THE MANDATORY DATA:
+  towrite = np.zeros(4, dtype=np.int32)
+  
+  towrite[0] = nx1
+  towrite[1] = ny1
+  towrite[2] = nz1
+  towrite[3] = 2 # number of records
+  #
+  print("The header looks like:",towrite[:])
+
+  #OPEN WRITING FILE:
+  f=FortranFile(fname,'w')
+  f.write_record(towrite)
+  #         SET OF DATA:
+  f.write_record(np.float32(beta_low))
+  f.write_record(np.float32(beta_upp))
+  # CLOSE IT
+  f.close()
+  
+  return
+
+#####################################
+
+def read_beta_atom(fname,fmt_type=np.float32):
+  import matplotlib.pyplot as plt
+  f=FortranFile(fname,'r')
+  toread=f.read_record(dtype=np.int32)
+  nx=toread[0]
+  ny=toread[1]
+  nz=toread[2]
+  nrec=toread[3]
+  #
+  print("The header looks like:",toread[:])
+  # lower departure coefficients
+  toread=f.read_record(dtype=np.float32)
+  beta_low=toread.reshape(nx,ny,nz)
+  # upper departure coefficients
+  toread=f.read_record(dtype=np.float32)
+  beta_upp=toread.reshape(nx,ny,nz)
+  return beta_low,beta_upp
+
+#####################################
+
+def write_beta_elec(fname, beta_elec, fmt_type=np.float32):
+  
+  if (fmt_type != np.float32):
+    print('Not implemented yet!')
+    return np.nan
+
+  nx1,ny1,nz1=np.shape(beta_elec)
+
+  nx1f=1.0*nx1
+  ny1f=1.0*ny1
+  nz1f=1.0*nz1
+
+  if (nx1f*ny1f*nz1f*4.0 > 2.0*1024.0*1024.0*1024.0):
+    print('Size of a fortran record cannot be larger than 2 Gb !')
+    return np.nan
+          
+  # FIRST, WE WRITE A FIRST RECORD WITH THE MANDATORY DATA:
+  towrite = np.zeros(4, dtype=np.int32)
+  
+  towrite[0] = nx1
+  towrite[1] = ny1
+  towrite[2] = nz1
+  towrite[3] = 2 # number of records
+  #
+  print("The header looks like:",towrite[:])
+
+  #OPEN WRITING FILE:
+  f=FortranFile(fname,'w')
+  f.write_record(towrite)
+  #         SET OF DATA:
+  f.write_record(np.float32(beta_elec))
+  # CLOSE IT
+  f.close()
+  
+  return
+
+#####################################
+
+def read_beta_elec(fname,fmt_type=np.float32):
+  print('Not implemented yet!')
+  return np.nan
+
+################################################
+
+def add_noise(stokes_in,noise_level):
+  
+  #print(isinstance(stokes,stk_profile3D))
+  
+  if (isinstance(stokes_in,stk_profile3D) == False):
+    print('input variable does not have the correct class')
+    return np.nan
+
+  
+  print(stokes_in.nx,stokes_in.ny,stokes_in.nw)
+  stokes_out=stk_profile3D(stokes_in.nw,stokes_in.nx,stokes_in.ny)
+  #
+  for k in range(stokes_in.nx):
+    for j in range(stokes_in.ny):
+      noise=noise_level*np.random.normal(np.zeros(4*stokes_in.nw))
+      noise_i=noise[0:stokes_in.nw]
+      noise_q=noise[stokes_in.nw:2*stokes_in.nw]
+      noise_u=noise[2*stokes_in.nw:3*stokes_in.nw]
+      noise_v=noise[3*stokes_in.nw:4*stokes_in.nw]
+      #
+      stokes_out.stki[:,k,j]=stokes_in.stki[:,k,j]+noise_i
+      stokes_out.stkq[:,k,j]=stokes_in.stkq[:,k,j]+noise_q
+      stokes_out.stku[:,k,j]=stokes_in.stku[:,k,j]+noise_u
+      stokes_out.stkv[:,k,j]=stokes_in.stkv[:,k,j]+noise_v
+      #
+
+
+  return stokes_out
+
+###############################################
+
+def read_psf_v1(fname):
+  idd = 161906.0
+  v=1.0
+  #
+  f=FortranFile(fname,'r')
+  toread=f.read_record(dtype=np.float32)
+  #
+  ver=(toread[0]-toread[1])/2.0
+  iddn=toread[2]
+  #
+  print("The header looks like:",toread[:])
+  #
+  if (ver != v):
+    print('Wrong header version: ',ver,v)
+    return np.nan
+  if (iddn != idd):
+    print('Wrong header ID number: ',iddn,idd)
+    return np.nan
+  #
+  if (toread[3] != 2):
+    print('Number of records in header must be 2: ',toread[3])
+    return np.nan
+          #
+  if (toread[4] != 2):
+    print('Number of dimensions in header must 2: ',toread[4])
+    return np.nan
+  #
+  nx=int(toread[5])
+  ny=int(toread[6])
+  dx=toread[7]
+  dy=toread[8]
+  # read psf
+  toread=f.read_record(dtype=np.float32)
+  psf=toread.reshape(nx,ny)
+  return psf,dx,dy
+
+###############################################
+
+def read_psf_v2(fname):
+  # I AM NOT SURE THIS ONE WORKS .... NEED TO TEST IT
+  idd = 161906.0
+  v=2.0
+  #
+  f=FortranFile(fname,'r')
+  toread=f.read_record(dtype=np.float32)
+  #
+  ver=(toread[0]-toread[1])/2.0
+  iddn=toread[2]
+  #
+  print("The header looks like:",toread[:])
+  #
+  if (ver != v):
+    print('Wrong header version: ',ver,v)
+    return np.nan
+  if (iddn != idd):
+    print('Wrong header ID number: ',iddn,idd)
+    return np.nan
+  #
+  if ((toread[3] != 2) or (toread[4] != 2)):
+    print('Header dimensions must be both 2: ',toread[3],toread[4])
+    return np.nan
+  #
+  nx=int(toread[5])
+  ny=int(toread[6])
+  dx=toread[7]
+  dy=toread[8]
+  # read psf
+  toread=f.read_record(dtype=np.float32)
+  psf=toread.reshape(nx,ny)
+  return psf,dx,dy
