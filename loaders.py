@@ -34,13 +34,13 @@ def muram_binary_loader_sub(path,iter,ranges =[],stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-	skip = 2
+	skip = 8
 
 	T = snap.Temp[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	Tc = np.copy(T)
 	Tc[np.where(T<3000.0)] = 3000.0
 	Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 16E3
+	z = np.arange(zmax-zmin) * 20E3
 	p = snap.Pres[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	vz = snap.vx[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	data = {}
@@ -95,13 +95,13 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-	skip = 2
+	skip = 8
 
 	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	Tc = np.copy(T)
 	Tc[np.where(T<3000.0)] = 3000.0
 	Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 16E3
+	z = np.arange(zmax-zmin) * 20E3
 	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	data = {}

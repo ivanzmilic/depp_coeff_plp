@@ -241,6 +241,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
         ns = 4
     spectra = np.asarray(spectra)
     spectra = spectra.reshape(NX, NY, ns,-1)
+    print(spectra.shape)
     print("info::overseer::writing the spectra")
     spechdu = fits.PrimaryHDU(spectra)
     wavhdu = fits.ImageHDU(wave)
@@ -354,7 +355,7 @@ if (__name__ == '__main__'):
         
         elif (atmos_format == 'muramb'):
             print("info:overseer: opening the atmosphere in muram binary format...")
-            atmosarr = muram_binary_loader(path, number, [0,256,0,256,380,480], stokes)
+            atmosarr = muram_binary_loader(path, number, [0,512,0,512,0,250], stokes)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):
@@ -370,12 +371,12 @@ if (__name__ == '__main__'):
         #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
-        wave = np.linspace(525.00,525.04,81)
-        #wave = np.linspace(630.1,630.3,201)
+        #wave = np.linspace(525.00,525.04,81)
+        wave = np.linspace(392.8,393.8,501)
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
-        overseer_work(atmosarr, wave, stokes, task_grain_size = 16)
+        overseer_work(atmosarr, wave, stokes, task_grain_size = 8)
     else:
         worker_work(rank)
         pass
