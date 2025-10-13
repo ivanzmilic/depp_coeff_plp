@@ -6,77 +6,13 @@ import sys
 import muram as mio
 import muram as muram
 
-<<<<<<< HEAD
-=======
-def muram_binary_loader_sub(path,iter,ranges =[],stokes=False):
-
-	# Loads the output of a subsnap of a muram simulation into an array:
-
-	snap=muram.MuramSubSnap(path,iter)
-
-	T = snap.Temp.transpose(1,2,0)
-	
-	print ("info::muram_binary_loader::the original dimensions are: ", T.shape)
-
-	if (len(ranges) == 0):
-		xmin = 0
-		xmax = T.shape[0]
-		ymin = 0
-		ymax = T.shape[1]
-		zmin = 0
-		zmax = T.shape[2]
-	elif (len(ranges) == 6):
-		xmin = ranges[0]
-		xmax = ranges[1]
-		ymin = ranges[2]
-		ymax = ranges[3]
-		zmin = ranges[4]
-		zmax = ranges[5]
-	else:
-		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
-		return 0;
-
-	skip = 8
-
-	T = snap.Temp[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	Tc = np.copy(T)
-	Tc[np.where(T<3000.0)] = 3000.0
-	Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 20E3
-	p = snap.Pres[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	vz = snap.vx[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	data = {}
-	data["dims"] = np.array([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
-	z_3d = np.zeros([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
-	z_3d[:,:,:] = z[None,None,:]
-	data["z"] = z_3d[:,:,::-1]
-	data["T"] = Tc.transpose(1,2,0)[:,:,::-1]
-	data["p"] = p.transpose(1,2,0)[:,:,::-1] * 10.0
-	data["vz"] = -vz.transpose(1,2,0)[:,:,::-1] / 1E2
-
-	if (stokes):
-		Bz = snap.Bx[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		Bx = snap.By[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		By = snap.Bz[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	
-		B = np.sqrt(Bx**2.0 + By**2.0 + Bz**2.0) * np.sqrt(4.0*np.pi)
-		theta = np.arccos(Bz/(B+0.00000001))
-		phi = np.arctan(By/Bx)
-
-		data["B"] = B.transpose(2,1,0)[:,:,::-1]
-		data["theta"] = theta.transpose(2,1,0)[:,:,::-1]
-		data["phi"] = phi.transpose(2,1,0)[:,:,::-1]
-
-	return data;
-
->>>>>>> 6e3eb1134f7c421d993a7a497941231416b6dcf1
 def muram_binary_loader(path, iter, ranges=[], stokes=False):
 
 	# Loads the binary files from a muram file, and puts them into a suitable numpy array 
 	# to feed into lw
 
 	T = mio.MuramCube(path, iter, 'Temp')
-	T = T.transpose(2,1,0)
+	T = T.transpose(1,2,0)
 
 	print ("info::muram_binary_loader::the original dimensions are: ", T.shape)
 
@@ -98,7 +34,6 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-<<<<<<< HEAD
 	skip = 1
 
 	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
@@ -106,15 +41,6 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	Tc[np.where(T<3000.0)] = 3000.0 # Don't go too cool
 	#Tc[np.where(T>50000.0)] = 50000.0
 	z = np.arange(zmax-zmin) * 32E3
-=======
-	skip = 8
-
-	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	Tc = np.copy(T)
-	Tc[np.where(T<3000.0)] = 3000.0
-	Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 20E3
->>>>>>> 6e3eb1134f7c421d993a7a497941231416b6dcf1
 	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	vx = mio.MuramCube(path, iter, 'vy')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
@@ -126,13 +52,13 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	z_3d = np.zeros([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
 	z_3d[:,:,:] = z[None,None,:]
 	data["z"] = z_3d[:,:,::-1]
-	data["T"] = Tc.transpose(2,1,0)[:,:,::-1]
-	data["p"] = p.transpose(2,1,0)[:,:,::-1] * 10.0
-	data["vz"] = vz.transpose(2,1,0)[:,:,::-1] / 1E2
-	data["vx"] = vx.transpose(2,1,0)[:,:,::-1] / 1E2
-	data["vy"] = vy.transpose(2,1,0)[:,:,::-1] / 1E2
-	data["ne"] = ne.transpose(2,1,0)[:,:,::-1] * 1E6 
-	data["rho"] = rho.transpose(2,1,0)[:,:,::-1] * 1E3
+	data["T"] = Tc.transpose(1,2,0)[:,:,::-1]
+	data["p"] = p.transpose(1,2,0)[:,:,::-1] * 10.0
+	data["vz"] = vz.transpose(1,2,0)[:,:,::-1] / 1E2
+	data["vx"] = vx.transpose(1,2,0)[:,:,::-1] / 1E2
+	data["vy"] = vy.transpose(1,2,0)[:,:,::-1] / 1E2
+	data["ne"] = ne.transpose(1,2,0)[:,:,::-1] * 1E6 
+	data["rho"] = rho.transpose(1,2,0)[:,:,::-1] * 1E3
 
 	# All the conversions above are to lw units
 
@@ -145,9 +71,9 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 		theta = np.arccos(Bz/(B+0.00000001))
 		phi = np.arctan(By/Bx)
 
-		data["B"] = B.transpose(2,1,0)[:,:,::-1]
-		data["theta"] = theta.transpose(2,1,0)[:,:,::-1]
-		data["phi"] = phi.transpose(2,1,0)[:,:,::-1]
+		data["B"] = B.transpose(1,2,0)[:,:,::-1]
+		data["theta"] = theta.transpose(1,2,0)[:,:,::-1]
+		data["phi"] = phi.transpose(1,2,0)[:,:,::-1]
 
 	np.savez("current_atmos.npy", **data)
 
