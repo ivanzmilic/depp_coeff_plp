@@ -333,18 +333,21 @@ if (__name__ == '__main__'):
     size = comm.size        # total number of processes
     rank = comm.rank        # rank of this process
     status = MPI.Status()   # get MPI status object
+    print (rank)
 
     #print(f"Node {rank}/{size} active", flush=True)
 
     if rank == 0: # If I am the overseer process
+
+        print("info::overseer::starting...")
 
         # --------------------------------------------------------------------
         path = sys.argv[1] # path where the data is
         filename = sys.argv[2] # characteristic naming for the files, used differently depending on what 
                                # kind of simulation we are working with 
         number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
-        atmos_format = sys.argv[4] # format name - see below
-        stokes = sys.argv[5].lower() == 'true' # whether to synthesize Stokes I or all 4 components
+        stokes = sys.argv[4].lower() == 'true' # whether to synthesize Stokes I or all 4 components
+        format = sys.argv[5]
         
         atmosarr = 0
         
@@ -365,7 +368,7 @@ if (__name__ == '__main__'):
             #path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
             #path = '/dat/milic/3D/3D_full_subdomain'
             path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
-            atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,768,0,768,150,406], stokes)
+            atmosarr = muram_binary_loader(path, number, [0,128,0,128,150,406], stokes)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):

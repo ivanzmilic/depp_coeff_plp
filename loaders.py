@@ -53,7 +53,7 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	z_3d[:,:,:] = z[None,None,:]
 	data["z"] = z_3d[:,:,::-1]
 	data["T"] = Tc.transpose(1,2,0)[:,:,::-1]
-	data["p"] = p.transpose(1,2,0)[:,:,::-1] * 10.0
+	data["p"] = p.transpose(1,2,0)[:,:,::-1] / 10.0
 	data["vz"] = vz.transpose(1,2,0)[:,:,::-1] / 1E2
 	data["vx"] = vx.transpose(1,2,0)[:,:,::-1] / 1E2
 	data["vy"] = vy.transpose(1,2,0)[:,:,::-1] / 1E2
