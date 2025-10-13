@@ -64,7 +64,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(1)
+    atmos.quadrature(5)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -72,8 +72,9 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # Annoying, but since you have all the atoms in the file - that is fine.
     aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(), MgI_atom(), N_atom(), Na_atom(), S_atom()])
     
-    # Set actives to the ones you have inputted.
-    aSet.set_active(actives)
+    # Set actives to the ones you want
+    #aSet.set_active(actives)
+    aSet.set_active('Ca')
     
     # Compute the necessary wavelength dependent information (SpectrumConfiguration).
     spect = aSet.compute_wavelength_grid()
@@ -86,16 +87,16 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # Feel free to increase Nthreads to increase the number of threads the program will use.
     # I would always stick to Nthreads = 1 as we are looking to mpi this one
     
-    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=conserve, Nthreads=1)
+    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=False, Nthreads=1)
     
     # Iterate the Context to convergence (using the iteration function now
     # provided by Lightweaver). Go test this one in order to calculate stuff in LTE!
     
     #lw.iterate_ctx_se(ctx, prd=prd)
     
-    #lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
+    lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
 
-    ctx.formal_sol_gamma_matrices()
+    #ctx.formal_sol_gamma_matrices()
 
     
     # Update the background populations based on the converged solution and
@@ -112,7 +113,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     if (stokes == False):
         Iwave = Iwave.reshape(1,-1)
     
-    return Iwave
+    return ctx, Iwave
 
 class tags(IntEnum):
     """ Class to define the state of a worker.
@@ -186,6 +187,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     # Define the lists that will store the data of each feature-label pair - I hate lists, can I work with 
     # numpy array 
     spectra = [None] * data_size
+    pops = [None] * data_size
     
     success = True
     task_status = [0] * num_tasks
@@ -228,6 +230,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
                 else:
                     task_writeback = task_writeback_range[task_index]
                     spectra[task_writeback] = data_in['spectrum']
+                    pops[task_writeback] = data_in['pops']
                     progress_bar.update(1)
 
             # if the worker has the exit tag mark it as closed.
@@ -241,11 +244,14 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
         ns = 4
     spectra = np.asarray(spectra)
     spectra = spectra.reshape(NX, NY, ns,-1)
+    pops = np.asarray(pops)
+    pops = pops.reshape(NX, NY, 6, -1)
     print("info::overseer::writing the spectra")
     spechdu = fits.PrimaryHDU(spectra)
     wavhdu = fits.ImageHDU(wave)
-    to_output = fits.HDUList([spechdu, wavhdu])
-    to_output.writeto(sys.argv[1]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
+    popshdu = fits.ImageHDU(pops)
+    to_output = fits.HDUList([spechdu, wavhdu, popshdu])
+    to_output.writeto('/dat/milic/'+sys.argv[1]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
 
     
 def worker_work(rank):
@@ -281,6 +287,7 @@ def worker_work(rank):
                 ns = 4
 
             I = np.zeros([task_size, ns,len(wave)])
+            pops = np.zeros([task_size, 6,z.shape[1]])
             
             for t in range(task_size): # Now, task size is not one, probably a good choice
                 # Configure the context
@@ -293,23 +300,24 @@ def worker_work(rank):
                                   B=B[t], gammaB=inc[t], chiB=azi[t], convertScales=False)
                 else:
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t], 
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*2E3, Pgas=pg[t], 
                                   convertScales=False)
 
                 success = 1
                 #try:
                     # This should work
-                Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Fe')
+                ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Ca')
                 #except:
                     # NOTE(cmo): In this instance, the task should never fail
                     # for sane input.
                 #    success = 0
                 #    break
                 I[t,:,:] = np.copy(Itemp)
+                pops[t,:,:] = np.copy(ctxtemp.eqPops['Ca'])
 
             # Send the computed data
             # we do want to fill in tau too, but that can wait for the next step
-            data_out =  {'index': task_index, 'success': success, 'spectrum': I}
+            data_out =  {'index': task_index, 'success': success, 'spectrum': I, 'pops': pops}
             comm.send(data_out, dest=0, tag=tags.DONE)
 
         # If the tag is exit break the loop and kill the worker and send the EXIT tag to overseer
@@ -346,12 +354,14 @@ if (__name__ == '__main__'):
             print("info:overseer: ...sucess!")
         elif (atmos_format == 'muramb'):
             print("info:overseer: opening the atmosphere in muram binary format...")
-            path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
-            atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,512,0,512,380,480], stokes)
+            #path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
+            #path = '/dat/milic/3D/3D_full_subdomain'
+            path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
+            atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,768,0,768,150,406], stokes)
             print("info:overseer: ...sucess!")
         elif (atmos_format == 'muramsb'):
             print("info:overseer: opening the atmosphere in muram binary (sub) format...")
-            path = '/home/milic/data/ISSI_trackings/SSD_25x8Mm_16_pdmp_1_ISSI_Flows/3D'
+            path = '/dat/milic/3D/3D_full_subdomain/'
             atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,1536,0,1536 ,0,121], stokes)
             print("info:overseer: ...sucess!")
         
@@ -362,12 +372,15 @@ if (__name__ == '__main__'):
         #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
-        wave = np.linspace(525.00,525.04,81)
-        #wave = np.linspace(630.1,630.3,201)
+        wave0 = np.arange(5)*100.0 + 400.
+        #wave = np.linspace(525.00,525.04,81)
+        wave = np.linspace(393.1,393.6,501)
+        wave = np.append(wave, wave0)
+        print("info::overseer:: this is our wavelength grid: ", wave)
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
-        overseer_work(atmosarr, wave, stokes, task_grain_size = 16)
+        overseer_work(atmosarr, wave, stokes, task_grain_size = 8)
     else:
         worker_work(rank)
         pass
