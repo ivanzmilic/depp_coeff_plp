@@ -336,13 +336,20 @@ if (__name__ == '__main__'):
 
     #print(f"Node {rank}/{size} active", flush=True)
 
-    if rank == 0:
+    if rank == 0: # If I am the overseer process
 
         # --------------------------------------------------------------------
-        stokes = sys.argv[2].lower() == 'true'
-        atmos_format = sys.argv[3]
+        path = sys.argv[1] # path where the data is
+        filename = sys.argv[2] # characteristic naming for the files, used differently depending on what 
+                               # kind of simulation we are working with 
+        number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
+        atmos_format = sys.argv[4] # format name - see below
+        stokes = sys.argv[5].lower() == 'true' # whether to synthesize Stokes I or all 4 components
+        
         atmosarr = 0
+        
         print("info::overseer::stokes mode is: ", stokes)
+        
         if (atmos_format == 'mrmfx'):
             print("info:overseer: opening the atmosphere in simple muram format...")
             atmosarr = load_muram_fixed_format(sys.argv[1],stokes)
@@ -352,6 +359,7 @@ if (__name__ == '__main__'):
             print("info:overseer: opening the atmosphere in SIR format...")
             atmosarr = sir_format_loader(sys.argv[1],stokes)
             print("info:overseer: ...sucess!")
+        
         elif (atmos_format == 'muramb'):
             print("info:overseer: opening the atmosphere in muram binary format...")
             #path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
@@ -359,6 +367,7 @@ if (__name__ == '__main__'):
             path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
             atmosarr = muram_binary_loader(path, int(sys.argv[1]), [0,768,0,768,150,406], stokes)
             print("info:overseer: ...sucess!")
+        
         elif (atmos_format == 'muramsb'):
             print("info:overseer: opening the atmosphere in muram binary (sub) format...")
             path = '/dat/milic/3D/3D_full_subdomain/'
