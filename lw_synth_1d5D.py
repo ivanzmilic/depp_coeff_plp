@@ -16,6 +16,7 @@ from mpi4py import MPI
 from tqdm import tqdm
 import sys
 threadpool_limits(1)
+
 # NOTE(cmo): Numpy please, I beg you, only create 1 BLAS thread per process. 
 
 # NOTE(cmo): Based on Andres' + Andreu's MPI Lightweaver worker
@@ -32,9 +33,9 @@ from loaders import muram_binary_loader_sub
 
 def airtovac(lambda_air):
 
-  s = 1E2/(lambda_air*1E8);
-  n = 1.0 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s*s) + 0.0001599740894897 / (38.92568793293 - s*s);
-  return lambda_air * n
+    s = 1E2/(lambda_air*1E8);
+    n = 1.0 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s*s) + 0.0001599740894897 / (38.92568793293 - s*s);
+    return lambda_air * n
 
 def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     
@@ -64,7 +65,8 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(5)
+    atmos.quadrature(3)#, force3d=True)
+    # See if you can force this to 
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -87,7 +89,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # Feel free to increase Nthreads to increase the number of threads the program will use.
     # I would always stick to Nthreads = 1 as we are looking to mpi this one
     
-    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=False, Nthreads=1)
+    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=False, Nthreads=1, formalSolver='piecewise_linear_1d')
     
     # Iterate the Context to convergence (using the iteration function now
     # provided by Lightweaver). Go test this one in order to calculate stuff in LTE!
@@ -153,7 +155,7 @@ def slice_tasks(atmosin, task_start, grain_size):
 
     return data
 
-def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
+def overseer_work(atmosarr, wave, stokes, task_grain_size=16, task_info=None):
     """ Function to define the work to do by the overseer """
 
     # Reshape the atmosphere:
@@ -251,7 +253,15 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16):
     wavhdu = fits.ImageHDU(wave)
     popshdu = fits.ImageHDU(pops)
     to_output = fits.HDUList([spechdu, wavhdu, popshdu])
-    to_output.writeto('/dat/milic/'+sys.argv[1]+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)
+    if (task_info is not None):
+        path, filename, number = task_info
+        to_output.writeto(path+filename+'_'+str(number)+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)    
+    else:
+        to_output.writeto('/dat/milic/lw_synth_1d5D_output.fits', overwrite=True)
+
+    return 0  
+    
+    
 
     
 def worker_work(rank):
@@ -294,13 +304,15 @@ def worker_work(rank):
                 # Need to loop over task size
                 atmos = 0
                 # TODO - consider convertScales!!!!
+                # Here you can provide vx and vy, so the code will reckognize the 3D field. 
+
                 if (stokes):
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.zeros(ND), Pgas=pg[t],
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*5E3, Pgas=pg[t],
                                   B=B[t], gammaB=inc[t], chiB=azi[t], convertScales=False)
                 else:
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*2E3, Pgas=pg[t], 
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*10E3, Pgas=pg[t], 
                                   convertScales=False)
 
                 success = 1
@@ -314,6 +326,14 @@ def worker_work(rank):
                 #    break
                 I[t,:,:] = np.copy(Itemp)
                 pops[t,:,:] = np.copy(ctxtemp.eqPops['Ca'])
+
+                # we also want to pack scattering source function:
+                # ctxtemp.background.sca # This should be a 2D array wavelength x depth 
+                # ctxtemp.background.eta, ctxtemp.background.eta
+                # 
+                # TODO - output the level populations, rotate and then synthesize the spectrum using lw all the way. 
+                # This way you will get reliable values of the intensity (we hope!) 
+                # Check formal solver. 
 
             # Send the computed data
             # we do want to fill in tau too, but that can wait for the next step
@@ -333,8 +353,7 @@ if (__name__ == '__main__'):
     size = comm.size        # total number of processes
     rank = comm.rank        # rank of this process
     status = MPI.Status()   # get MPI status object
-    print (rank)
-
+    
     #print(f"Node {rank}/{size} active", flush=True)
 
     if rank == 0: # If I am the overseer process
@@ -347,7 +366,7 @@ if (__name__ == '__main__'):
                                # kind of simulation we are working with 
         number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
         stokes = sys.argv[4].lower() == 'true' # whether to synthesize Stokes I or all 4 components
-        format = sys.argv[5]
+        atmos_format = sys.argv[5]
         
         atmosarr = 0
         
@@ -367,14 +386,15 @@ if (__name__ == '__main__'):
             print("info:overseer: opening the atmosphere in muram binary format...")
             #path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
             #path = '/dat/milic/3D/3D_full_subdomain'
-            path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
-            atmosarr = muram_binary_loader(path, number, [0,128,0,128,150,406], stokes)
+            #path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
+            #path = '/dat/milic/MURaM_enhanced_network/'
+            atmosarr = muram_binary_loader(path, number, [0,1024,0,1024,15,416], 20E3, stokes, 1,1)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):
             print("info:overseer: opening the atmosphere in muram binary (sub) format...")
             path = '/dat/milic/3D/3D_full_subdomain/'
-            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [0,1536,0,1536 ,0,121], stokes)
+            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [512,53,0,512 ,11,90], stokes)
             print("info:overseer: ...sucess!")
         
         else:
@@ -384,15 +404,17 @@ if (__name__ == '__main__'):
         #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
-        wave0 = np.arange(5)*100.0 + 400.
+        wave0 = np.arange(30)*25.0 + 200.
         #wave = np.linspace(525.00,525.04,81)
-        wave = np.linspace(393.1,393.6,501)
+        wave = np.linspace(392.8,394.8,1001)
         wave = np.append(wave, wave0)
-        print("info::overseer:: this is our wavelength grid: ", wave)
+        wave = np.sort(wave)
+        #print("info::overseer:: this is our wavelength grid: ", wave)
+        #wave = np.linspace(460.0, 461.5, 151)
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
-        overseer_work(atmosarr, wave, stokes, task_grain_size = 8)
+        overseer_work(atmosarr, wave, stokes, task_grain_size = 16, task_info = [path, filename, number])
     else:
         worker_work(rank)
         pass
