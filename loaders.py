@@ -6,7 +6,7 @@ import sys
 import muram as mio
 import muram as muram
 
-def muram_binary_loader(path, iter, ranges=[], stokes=False):
+def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, skipy=1):
 
 	# Loads the binary files from a muram file, and puts them into a suitable numpy array 
 	# to feed into lw
@@ -34,22 +34,22 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-	skip = 1
+	#skip = 1
 
-	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
+	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	Tc = np.copy(T)
 	Tc[np.where(T<3000.0)] = 3000.0 # Don't go too cool
 	#Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 32E3
-	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	vx = mio.MuramCube(path, iter, 'vy')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	vy = mio.MuramCube(path, iter, 'vz')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	ne = mio.MuramCube(path, iter, 'ne')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	rho = mio.MuramCube(path, iter, 'rho')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
+	z = np.arange(zmax-zmin) * dz
+	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vx = mio.MuramCube(path, iter, 'vy')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vy = mio.MuramCube(path, iter, 'vz')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	ne = mio.MuramCube(path, iter, 'ne')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	rho = mio.MuramCube(path, iter, 'rho')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	data = {}
-	data["dims"] = np.array([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
-	z_3d = np.zeros([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
+	data["dims"] = np.array([(xmax-xmin)//skipx, (ymax-ymin)//skipy, zmax-zmin])
+	z_3d = np.zeros([(xmax-xmin)//skipx, (ymax-ymin)//skipy, zmax-zmin])
 	z_3d[:,:,:] = z[None,None,:]
 	data["z"] = z_3d[:,:,::-1]
 	data["T"] = Tc.transpose(1,2,0)[:,:,::-1]
@@ -60,15 +60,15 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	data["ne"] = ne.transpose(1,2,0)[:,:,::-1] * 1E6 
 	data["rho"] = rho.transpose(1,2,0)[:,:,::-1] * 1E3
 
-	# All the conversions above are to lw units
+	# All the conversions above are to lw (that is SI) units
 
 	if (stokes):
-		Bz = mio.MuramCube(path, iter, 'Bx')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		Bx = mio.MuramCube(path, iter, 'By')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		By = mio.MuramCube(path, iter, 'Bz')[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
+		Bz = mio.MuramCube(path, iter, 'Bx')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+		Bx = mio.MuramCube(path, iter, 'By')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+		By = mio.MuramCube(path, iter, 'Bz')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	
 		B = np.sqrt(Bx**2.0 + By**2.0 + Bz**2.0) * np.sqrt(4.0*np.pi)
-		theta = np.arccos(Bz/(B+0.00000001))
+		theta = np.arccos(Bz/(B+0.001))
 		phi = np.arctan(By/Bx)
 
 		data["B"] = B.transpose(1,2,0)[:,:,::-1]
@@ -78,6 +78,9 @@ def muram_binary_loader(path, iter, ranges=[], stokes=False):
 	np.savez("current_atmos.npy", **data)
 
 	return data;
+
+# ================================================================================================================================
+# MOSTLY OBSOLETE - NEEDS FIXING AND UPDATING:
 
 # rather obsolete, better not to use
 def muram_binary_loader_sub(path,iter,ranges,stokes=False):
@@ -109,7 +112,7 @@ def muram_binary_loader_sub(path,iter,ranges,stokes=False):
 		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
 		return 0;
 
-	skip = 1
+	skip = 4
 
 	T = snap.Temp[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	Tc = np.copy(T)
@@ -133,7 +136,7 @@ def muram_binary_loader_sub(path,iter,ranges,stokes=False):
 		By = snap.Bz[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
 	
 		B = np.sqrt(Bx**2.0 + By**2.0 + Bz**2.0) * np.sqrt(4.0*np.pi)
-		theta = np.arccos(Bz/(B+0.00000001))
+		theta = np.arccos(Bz/(B+0.0001))
 		phi = np.arctan(By/Bx)
 
 		data["B"] = B.transpose(2,1,0)[:,:,::-1]

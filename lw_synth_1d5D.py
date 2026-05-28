@@ -246,6 +246,9 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16, task_info=None):
         ns = 4
     spectra = np.asarray(spectra)
     spectra = spectra.reshape(NX, NY, ns,-1)
+    
+    # THIS IS HARDCODED SO YOU MIGHT WANNA SKIP THIS IF YOU DONT WANT LEVEL POPULATIONS 
+    # (But Ivan needs it for his Ca II project ;-))
     pops = np.asarray(pops)
     pops = pops.reshape(NX, NY, 6, -1)
     print("info::overseer::writing the spectra")
@@ -362,8 +365,8 @@ if (__name__ == '__main__'):
 
         # --------------------------------------------------------------------
         path = sys.argv[1] # path where the data is
-        filename = sys.argv[2] # characteristic naming for the files, used differently depending on what 
-                               # kind of simulation we are working with 
+        filename = sys.argv[2]  # characteristic naming for the files, used differently depending on what 
+                                # kind of simulation we are working with 
         number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
         stokes = sys.argv[4].lower() == 'true' # whether to synthesize Stokes I or all 4 components
         atmos_format = sys.argv[5]
@@ -388,7 +391,7 @@ if (__name__ == '__main__'):
             #path = '/dat/milic/3D/3D_full_subdomain'
             #path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
             #path = '/dat/milic/MURaM_enhanced_network/'
-            atmosarr = muram_binary_loader(path, number, [0,1024,0,1024,15,416], 20E3, stokes, 1,1)
+            atmosarr = muram_binary_loader(path, number, [0,64,0,64,15,200], 20E3, stokes, 2,2)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):
@@ -404,11 +407,11 @@ if (__name__ == '__main__'):
         #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
-        wave0 = np.arange(30)*25.0 + 200.
+        #wave0 = np.arange(30)*25.0 + 200.
         #wave = np.linspace(525.00,525.04,81)
         wave = np.linspace(392.8,394.8,1001)
-        wave = np.append(wave, wave0)
-        wave = np.sort(wave)
+        #wave = np.append(wave, wave0)
+        #wave = np.sort(wave)
         #print("info::overseer:: this is our wavelength grid: ", wave)
         #wave = np.linspace(460.0, 461.5, 151)
         
