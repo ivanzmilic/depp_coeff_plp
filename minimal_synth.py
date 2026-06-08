@@ -44,7 +44,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     Iwave : np.ndarray - The intensity at given mu and wave    '''
     
     # Configure the atmospheric angular quadrature - only matters for NLTE. Gonna use 3 for faster calc
-    atmos.quadrature(1)
+    atmos.quadrature(5)
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
@@ -66,20 +66,20 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # Feel free to increase Nthreads to increase the number of threads the program will use.
     # I would always stick to Nthreads = 1 as we are looking to mpi this one
     
-    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=conserve, Nthreads=1)
+    ctx = lw.Context(atmos, spect, eqPops, conserveCharge=conserve, Nthreads=4)
     
     # Iterate the Context to convergence (using the iteration function now
  	# provided by Lightweaver). Go test this one in order to calculate stuff in LTE!
     
     #lw.iterate_ctx_se(ctx, prd=prd)
-    #lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
+    lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
 
-    ctx.formal_sol_gamma_matrices()
+    #ctx.formal_sol_gamma_matrices()
 
     
     # Update the background populations based on the converged solution and
     # compute the final intensity for mu=1 on the provided wavelength grid.
-    #eqPops.update_lte_atoms_Hmin_pops(atmos)
+    eqPops.update_lte_atoms_Hmin_pops(atmos)
     
     # Calculate the (stokes) spectru, at the provided wavegrid at the specified mu
     Iwave = ctx.compute_rays(wave, [mu], stokes=stokes) 
@@ -89,7 +89,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
 
     # For now we are only returning the intensity:
     if (stokes == False):
-    	Iwave = Iwave.reshape(1,-1)
+        Iwave = Iwave.reshape(1,-1)
     
     return Iwave
 
@@ -97,18 +97,19 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
 
 # Here we test reading 1D atmosphere for a txt file:
 
-atmos_in = np.loadtxt(sys.argv[1], unpack=True, skiprows=1)
+#atmos_in = np.loadtxt(sys.argv[1], unpack=True, skiprows=1)
 
-z = atmos_in[1] / 1E2
-T = atmos_in[2]
-vz = np.zeros(len(z))
-vturb = atmos_in[8] / 1E2
-pgas = atmos_in[3] * 10.0
+#z = atmos_in[1] / 1E2
+#T = atmos_in[2]
+#vz = np.zeros(len(z))
+#vturb = atmos_in[8] / 1E2
+#pgas = atmos_in[3] * 10.0
 
-atmos= lw.Atmosphere.make_1d(lw.atmosphere.ScaleType.Geometric, np.copy(z), np.copy(T), np.copy(vz), np.copy(vturb), Pgas=pgas)
+#atmos= lw.Atmosphere.make_1d(lw.atmosphere.ScaleType.Geometric, np.copy(z), np.copy(T), np.copy(vz), np.copy(vturb), Pgas=pgas)
 
-#wave = np.linspace(588.8, 589.8, 1001)
-#wave = np.linspace(630.0,630.4,401)
+# But probably easier if you just use the built in FALC model for testing, following the example online:
+
+
 wave = np.linspace(525.0,525.05,51)
 I = synth(atmos, conserve=False, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Fe')
 

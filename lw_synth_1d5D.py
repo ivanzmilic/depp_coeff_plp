@@ -33,7 +33,7 @@ from loaders import muram_binary_loader_sub
 
 def airtovac(lambda_air):
 
-    s = 1E2/(lambda_air*1E8);
+    s = 1E4/(lambda_air*1E1);
     n = 1.0 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s*s) + 0.0001599740894897 / (38.92568793293 - s*s);
     return lambda_air * n
 
@@ -391,7 +391,7 @@ if (__name__ == '__main__'):
             #path = '/dat/milic/3D/3D_full_subdomain'
             #path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
             #path = '/dat/milic/MURaM_enhanced_network/'
-            atmosarr = muram_binary_loader(path, number, [0,64,0,64,15,200], 20E3, stokes, 2,2)
+            atmosarr = muram_binary_loader(path, number, [0,64,0,64,15,416], 20E3, stokes, 1,1)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):
