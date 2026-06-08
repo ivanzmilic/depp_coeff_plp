@@ -16,7 +16,7 @@ import sys
 
 ### First a minimal synthesis function:
 
-def synth(atmos, conserve, prd, stokes, wave, mu, actives):
+def synth(atmos, conserve, useNe, prd, stokes, wave, mu, actives):
     
     '''
     Synthesize a spectral region with given parameters:
@@ -59,7 +59,10 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     spect = aSet.compute_wavelength_grid()
 
     # Calculate electron density in lte, we are never using the electron density from the model
-    eqPops = aSet.iterate_lte_ne_eq_pops(atmos)
+    if useNe:
+        eqPops = aSet.compute_eq_pops(atmos)
+    else:
+        eqPops = aSet.iterate_lte_ne_eq_pops(atmos)
 
     # Configure the Context which holds the state of the simulation for the  backend, and provides 
     # the python interface to the backend.
@@ -110,8 +113,17 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
 # But probably easier if you just use the built in FALC model for testing, following the example online:
 
 
-wave = np.linspace(525.0,525.05,51)
-I = synth(atmos, conserve=False, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Fe')
+atmosRef = Falc82()
+wave = np.linspace(777.1, 777.3, 201)
 
-spec = np.concatenate((wave[None,:], I[:]), axis=0)
-np.savetxt("testme.dat", spec.T, fmt="%1.6e")
+I = synth(atmosRef, conserve=False, useNe=True, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='O')
+
+np.savetxt("testme.dat", I.T, fmt="%1.6e")
+
+plt.clf()
+plt.cla()
+plt.plot(wave, I[0], label='Reference FAL')
+plt.legend()
+plt.savefig("testme.png")
+
+
