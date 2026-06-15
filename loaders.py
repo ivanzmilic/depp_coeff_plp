@@ -75,7 +75,7 @@ def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, s
 		data["theta"] = theta.transpose(1,2,0)[:,:,::-1]
 		data["phi"] = phi.transpose(1,2,0)[:,:,::-1]
 
-	np.savez("current_atmos.npy", **data)
+	#np.savez("current_atmos.npy", **data)
 
 	return data;
 

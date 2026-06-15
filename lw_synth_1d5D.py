@@ -391,7 +391,7 @@ if (__name__ == '__main__'):
             #path = '/dat/milic/3D/3D_full_subdomain'
             #path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
             #path = '/dat/milic/MURaM_enhanced_network/'
-            atmosarr = muram_binary_loader(path, number, [0,64,0,64,15,416], 20E3, stokes, 1,1)
+            atmosarr = muram_binary_loader(path, number, [0,512,0,512,15,416], 20E3, stokes, 1,1)
             print("info:overseer: ...sucess!")
         
         elif (atmos_format == 'muramsb'):
