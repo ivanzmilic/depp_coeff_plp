@@ -6,8 +6,10 @@ import lightweaver as lw
 from lightweaver.fal import Falc82 # essentially not needed 
 
 from lightweaver.rh_atoms import H_6_atom, C_atom, O_atom, Si_atom, Al_atom, \
-CaII_atom, Fe23_atom, He_9_atom, MgII_atom, N_atom, NaI_fine_atom, S_atom # Specific atomic models that cover most of 
+CaII_atom, Fe23_atom, He_9_atom, Mg_atom, N_atom, NaI_fine_atom, S_atom # Specific atomic models that cover most of 
                                                                         # of the spectral lines studied in solar physccs 
+
+from custom_atoms import sr_tanausu                                                                
 
 import matplotlib.pyplot as plt
 import time
@@ -16,7 +18,7 @@ import sys
 
 ### First a minimal synthesis function:
 
-def synth(atmos, conserve, prd, stokes, wave, mu, actives):
+def synth(atmos, conserve, useNe, prd, stokes, wave, mu, actives, forcelte=False):
     
     '''
     Synthesize a spectral region with given parameters:
@@ -50,7 +52,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     
     # Configure the set of atomic models to use. Contrary to SNAPI you have to explicitly specify all species
     # Annoying, but since you have all the atoms in the file - that is fine.
-    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_atom(), He_9_atom(), MgII_atom(), N_atom(), NaI_fine_atom(), S_atom()])
+    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_atom(), He_9_atom(), Mg_atom(), N_atom(), NaI_fine_atom(), S_atom(), sr_tanausu()])
     
     # Set actives to the ones you have inputted.
     aSet.set_active(actives)
@@ -59,7 +61,10 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     spect = aSet.compute_wavelength_grid()
 
     # Calculate electron density in lte, we are never using the electron density from the model
-    eqPops = aSet.iterate_lte_ne_eq_pops(atmos)
+    if useNe:
+        eqPops = aSet.compute_eq_pops(atmos)
+    else:
+        eqPops = aSet.iterate_lte_ne_eq_pops(atmos)
 
     # Configure the Context which holds the state of the simulation for the  backend, and provides 
     # the python interface to the backend.
@@ -72,11 +77,11 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
  	# provided by Lightweaver). Go test this one in order to calculate stuff in LTE!
     
     #lw.iterate_ctx_se(ctx, prd=prd)
-    lw.iterate_ctx_se(ctx, prd=prd, quiet=True)
+    if (forcelte):
+        ctx.formal_sol_gamma_matrices()
+    else:
+        lw.iterate_ctx_se(ctx, prd=prd,quiet=True)
 
-    #ctx.formal_sol_gamma_matrices()
-
-    
     # Update the background populations based on the converged solution and
     # compute the final intensity for mu=1 on the provided wavelength grid.
     eqPops.update_lte_atoms_Hmin_pops(atmos)
@@ -91,7 +96,7 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     if (stokes == False):
         Iwave = Iwave.reshape(1,-1)
     
-    return Iwave
+    return Iwave, ctx
 
 # Actually test if this works:
 
@@ -109,9 +114,22 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
 
 # But probably easier if you just use the built in FALC model for testing, following the example online:
 
+if __name__ == "__main__":
+    atmosRef = Falc82()
+    wave = np.linspace(460.72, 460.75, 601)
 
-wave = np.linspace(525.0,525.05,51)
-I = synth(atmos, conserve=False, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Fe')
+    # A test with given electrons:
+    Ie, temp = synth(atmosRef, conserve=False, useNe=True, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Sr')
 
-spec = np.concatenate((wave[None,:], I[:]), axis=0)
-np.savetxt("testme.dat", spec.T, fmt="%1.6e")
+    Icale, temp = synth(atmosRef, conserve=False, useNe=False, prd=False, stokes=False, wave=wave*1.000275, mu=1.0, actives='Sr')
+
+    #np.savetxt("testme.dat", I.T, fmt="%1.6e")
+
+    plt.clf()
+    plt.cla()
+    plt.plot(wave, Ie[0], label='Reference FAL')
+    plt.plot(wave, Icale[0], label='LTE FAL')
+    plt.legend()
+    plt.savefig("testme.png")
+
+
