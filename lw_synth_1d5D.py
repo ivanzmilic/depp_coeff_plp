@@ -7,6 +7,9 @@ os.environ["OMP_NUM_THREADS"] = "1"
 threadpool_limits(1)
 import pickle
 from enum import IntEnum
+import traceback
+import datetime
+import time
 
 import lightweaver as lw
 import numpy as np
@@ -193,6 +196,7 @@ def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, ta
     
     success = True
     task_status = [0] * num_tasks
+    failed_tasks = []  # Track failed tasks for reporting
 
     with tqdm(total=num_tasks, ncols=110) as progress_bar:
         
@@ -214,7 +218,7 @@ def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, ta
 
                     # send the data of the task and put the status to 1 (done)
                     comm.send(data, dest=source, tag=tags.START)
-                    print(" * Overseer : sending task {0} to worker {1}".format(task_index, source))
+                    #print(" * Overseer : sending task {0} to worker {1}".format(task_index, source))
                     task_status[task_index] = 1
 
                 # If error, or no work left, kill the worker
@@ -224,13 +228,16 @@ def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, ta
             # If the tag is Done, receive the status, the index and all the data
             # and update the progress bar
             elif tag == tags.DONE:
-                print(" * Overseer : worker {0} finished task {1}".format(source, data_in['index']))
+                #print(" * Overseer : worker {0} finished task {1}".format(source, data_in['index']))
                 success = data_in['success']
                 task_index = data_in['index']
 
                 if not success:
                     task_status[task_index] = 0
-                    print(f"Task: {task_index} failed")
+                    error_info = data_in.get('error_info', 'Unknown error')
+                    print(f"!!! Task {task_index} FAILED: {error_info}")
+                    print(f"    Check /tmp/lw_worker_{source}_errors.log for details")
+                    failed_tasks.append({'task_index': task_index, 'worker': source, 'info': error_info})
                 else:
                     task_writeback = task_writeback_range[task_index]
                     spectra[task_writeback] = data_in['spectrum']
@@ -271,10 +278,20 @@ def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, ta
     
 def worker_work(rank):
     # Function to define the work that the workers will do
+    
+    # Open a per-worker activity log
+    activity_log = f'/tmp/lw_worker_{rank}_activity.log'
+    with open(activity_log, 'w') as f:
+        f.write(f"Worker {rank} started at {datetime.datetime.now()}\n")
+    
+    print(f"[Worker {rank}] Started, logging to {activity_log}", flush=True)
 
     while True:
         # Send the overseer the signal that the worker is ready
         comm.send(None, dest=0, tag=tags.READY)
+        with open(activity_log, 'a') as f:
+            f.write(f"[{datetime.datetime.now()}] READY signal sent, waiting for task...\n")
+        
         # Receive the data with the index of the task, the atmosphere parameters and/or the tag
         data_in = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
         tag = status.Get_tag()
@@ -290,6 +307,11 @@ def worker_work(rank):
             wave = data_in['wave'].astype(float)
             ND = temperature.shape[-1]
             stokes = data_in['stokes']
+            
+            task_start_time = time.time()
+            with open(activity_log, 'a') as f:
+                f.write(f"[{datetime.datetime.now()}] Received task {task_index}, grain_size={task_size}, stokes={stokes}\n")
+            print(f"[Worker {rank}] Starting task {task_index} with {task_size} pixels", flush=True)
 
             if (stokes):
                 B = data_in['B'].astype(float)
@@ -305,6 +327,10 @@ def worker_work(rank):
             pops = np.zeros([task_size, 6,z.shape[1]])
             
             for t in range(task_size): # Now, task size is not one, probably a good choice
+                pixel_start_time = time.time()
+                with open(activity_log, 'a') as f:
+                    f.write(f"[{datetime.datetime.now()}] Task {task_index}, pixel {t}/{task_size} - starting synthesis\n")
+                
                 # Configure the context
                 # Need to loop over task size
                 atmos = 0
@@ -321,17 +347,79 @@ def worker_work(rank):
                                   convertScales=False)
 
                 success = 1
-                #try:
-                    # This should work
-                ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Ca')
-                # Here there might be a problem. It some
-                #except:
-                    # NOTE(cmo): In this instance, the task should never fail
-                    # for sane input.
-                #    success = 0
-                #    break
-                I[t,:,:] = np.copy(Itemp)
-                pops[t,:,:] = np.copy(ctxtemp.eqPops['Ca'])
+                try:
+                    with open(activity_log, 'a') as f:
+                        f.write(f"[{datetime.datetime.now()}] Task {task_index}, pixel {t}/{task_size} - calling synth()\n")
+                    
+                    ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Ca')
+                    I[t,:,:] = np.copy(Itemp)
+                    pops[t,:,:] = np.copy(ctxtemp.eqPops['Ca'])
+                    
+                    pixel_elapsed = time.time() - pixel_start_time
+                    with open(activity_log, 'a') as f:
+                        f.write(f"[{datetime.datetime.now()}] Task {task_index}, pixel {t}/{task_size} - SUCCESS in {pixel_elapsed:.2f}s\n")
+                    
+                except Exception as e:
+                    # Log detailed failure information
+                    error_msg = (
+                        f"\n{'='*60}\n"
+                        f"WORKER {rank} FAILURE at {datetime.datetime.now()}\n"
+                        f"Task index: {task_index}, Pixel: {t}/{task_size}\n"
+                        f"Exception: {type(e).__name__}: {str(e)}\n"
+                        f"Atmospheric parameters:\n"
+                        f"  T range: [{temperature[t].min():.1f}, {temperature[t].max():.1f}] K\n"
+                        f"  Pg range: [{pg[t].min():.2e}, {pg[t].max():.2e}] dyne/cm^2\n"
+                        f"  vlos range: [{vlos[t].min():.1f}, {vlos[t].max():.1f}] cm/s\n"
+                        f"  z range: [{z[t].min():.2e}, {z[t].max():.2e}] cm\n"
+                    )
+                    
+                    if stokes:
+                        error_msg += (
+                            f"  B range: [{B[t].min():.1f}, {B[t].max():.1f}] G\n"
+                            f"  inc range: [{inc[t].min():.2f}, {inc[t].max():.2f}] rad\n"
+                            f"  azi range: [{azi[t].min():.2f}, {azi[t].max():.2f}] rad\n"
+                        )
+                    
+                    error_msg += f"Traceback:\n{traceback.format_exc()}\n{'='*60}\n"
+                    
+                    # Print to stdout (will appear in MPI output)
+                    print(error_msg, flush=True)
+                    
+                    # Also save to a per-worker log file
+                    with open(f'/tmp/lw_worker_{rank}_errors.log', 'a') as f:
+                        f.write(error_msg)
+                    
+                    # Save the problematic atmospheric data for offline debugging
+                    failed_data = {
+                        'worker_rank': rank,
+                        'task_index': task_index,
+                        'pixel_in_task': t,
+                        'z': z[t],
+                        'temperature': temperature[t],
+                        'pg': pg[t],
+                        'vlos': vlos[t],
+                        'wave': wave,
+                        'exception_type': type(e).__name__,
+                        'exception_msg': str(e),
+                        'timestamp': datetime.datetime.now().isoformat()
+                    }
+                    
+                    if stokes:
+                        failed_data.update({
+                            'B': B[t],
+                            'inc': inc[t],
+                            'azi': azi[t]
+                        })
+                    
+                    # Save to pickle file
+                    pickle_file = f'/tmp/lw_failed_pixel_r{rank}_t{task_index}_p{t}.pkl'
+                    with open(pickle_file, 'wb') as f:
+                        pickle.dump(failed_data, f)
+                    
+                    print(f"Worker {rank}: Saved failed pixel data to {pickle_file}", flush=True)
+                    
+                    success = 0
+                    break  # Exit the loop, this task has failed
 
                 # we also want to pack scattering source function:
                 # ctxtemp.background.sca # This should be a 2D array wavelength x depth 
@@ -343,14 +431,40 @@ def worker_work(rank):
 
             # Send the computed data
             # we do want to fill in tau too, but that can wait for the next step
-            data_out =  {'index': task_index, 'success': success, 'spectrum': I, 'pops': pops}
+            task_elapsed = time.time() - task_start_time
+            
+            if success == 0:
+                data_out = {
+                    'index': task_index, 
+                    'success': success, 
+                    'spectrum': I, 
+                    'pops': pops,
+                    'error_info': f'Worker {rank} failed at pixel {t}/{task_size}'
+                }
+                with open(activity_log, 'a') as f:
+                    f.write(f"[{datetime.datetime.now()}] Task {task_index} FAILED after {task_elapsed:.2f}s\n")
+                print(f"[Worker {rank}] Task {task_index} FAILED after {task_elapsed:.2f}s", flush=True)
+            else:
+                data_out = {'index': task_index, 'success': success, 'spectrum': I, 'pops': pops}
+                with open(activity_log, 'a') as f:
+                    f.write(f"[{datetime.datetime.now()}] Task {task_index} COMPLETED in {task_elapsed:.2f}s ({task_elapsed/task_size:.2f}s per pixel)\n")
+                print(f"[Worker {rank}] Task {task_index} completed in {task_elapsed:.2f}s", flush=True)
+            
             comm.send(data_out, dest=0, tag=tags.DONE)
+            with open(activity_log, 'a') as f:
+                f.write(f"[{datetime.datetime.now()}] DONE signal sent for task {task_index}\n")
 
         # If the tag is exit break the loop and kill the worker and send the EXIT tag to overseer
         elif tag == tags.EXIT:
+            with open(activity_log, 'a') as f:
+                f.write(f"[{datetime.datetime.now()}] Received EXIT signal\n")
+            print(f"[Worker {rank}] Received EXIT signal, shutting down", flush=True)
             break
 
     comm.send(None, dest=0, tag=tags.EXIT)
+    with open(activity_log, 'a') as f:
+        f.write(f"[{datetime.datetime.now()}] Worker {rank} exiting, EXIT signal sent to overseer\n")
+    print(f"[Worker {rank}] Exited", flush=True)
 
 if (__name__ == '__main__'):
 
