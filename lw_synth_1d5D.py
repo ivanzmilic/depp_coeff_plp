@@ -155,7 +155,7 @@ def slice_tasks(atmosin, task_start, grain_size):
 
     return data
 
-def overseer_work(atmosarr, wave, stokes, task_grain_size=16, task_info=None):
+def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, task_info=None):
     """ Function to define the work to do by the overseer """
 
     # Reshape the atmosphere:
@@ -214,6 +214,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16, task_info=None):
 
                     # send the data of the task and put the status to 1 (done)
                     comm.send(data, dest=source, tag=tags.START)
+                    print(" * Overseer : sending task {0} to worker {1}".format(task_index, source))
                     task_status[task_index] = 1
 
                 # If error, or no work left, kill the worker
@@ -223,6 +224,7 @@ def overseer_work(atmosarr, wave, stokes, task_grain_size=16, task_info=None):
             # If the tag is Done, receive the status, the index and all the data
             # and update the progress bar
             elif tag == tags.DONE:
+                print(" * Overseer : worker {0} finished task {1}".format(source, data_in['index']))
                 success = data_in['success']
                 task_index = data_in['index']
 
@@ -322,6 +324,7 @@ def worker_work(rank):
                 #try:
                     # This should work
                 ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Ca')
+                # Here there might be a problem. It some
                 #except:
                     # NOTE(cmo): In this instance, the task should never fail
                     # for sane input.
@@ -369,13 +372,25 @@ if (__name__ == '__main__'):
                                 # kind of simulation we are working with 
         number = int(sys.argv[3]) # number of the snapshot - again will be used differently for muram, co5bold, etc...
         stokes = sys.argv[4].lower() == 'true' # whether to synthesize Stokes I or all 4 components
-        atmos_format = sys.argv[5]
+        use_ne = sys.argv[5].lower() == 'true' # whether to use the electron density from the model or to compute it in LTE (or even nlte)
+        atmos_format = sys.argv[6]
         
         atmosarr = 0
         
         print("info::overseer::stokes mode is: ", stokes)
-        
-        if (atmos_format == 'mrmfx'):
+
+        if (atmos_format == 'muramb'):
+            print("info:overseer: opening the atmosphere in muram binary format...")
+            atmosarr = muram_binary_loader(path, number, [0,1024,0,1024,15,316], 20E3, stokes, 4,4)
+            print("info:overseer: ...sucess!")
+            
+        elif (atmos_format == 'muramsb'):
+            print("info:overseer: opening the atmosphere in muram binary (sub) format...")
+            path = '/dat/milic/3D/3D_full_subdomain/'
+            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [512,53,0,512 ,11,90], stokes)
+            print("info:overseer: ...sucess!")
+            
+        elif (atmos_format == 'mrmfx'):
             print("info:overseer: opening the atmosphere in simple muram format...")
             atmosarr = load_muram_fixed_format(sys.argv[1],stokes)
             print("info:overseer: ...sucess!")
@@ -383,21 +398,6 @@ if (__name__ == '__main__'):
         elif (atmos_format == 'sir'):
             print("info:overseer: opening the atmosphere in SIR format...")
             atmosarr = sir_format_loader(sys.argv[1],stokes)
-            print("info:overseer: ...sucess!")
-        
-        elif (atmos_format == 'muramb'):
-            print("info:overseer: opening the atmosphere in muram binary format...")
-            #path = '/mnt/c/Users/ivanz/OneDrive/Documents/SSD_25_8Mm_16_pdmp_1_ISSI_flows'
-            #path = '/dat/milic/3D/3D_full_subdomain'
-            #path = '/dat/milic/MURAM_SSD_ch_co_25x25x25Mm/3D/'
-            #path = '/dat/milic/MURaM_enhanced_network/'
-            atmosarr = muram_binary_loader(path, number, [0,512,0,512,15,416], 20E3, stokes, 1,1)
-            print("info:overseer: ...sucess!")
-        
-        elif (atmos_format == 'muramsb'):
-            print("info:overseer: opening the atmosphere in muram binary (sub) format...")
-            path = '/dat/milic/3D/3D_full_subdomain/'
-            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [512,53,0,512 ,11,90], stokes)
             print("info:overseer: ...sucess!")
         
         else:
@@ -417,7 +417,7 @@ if (__name__ == '__main__'):
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
-        overseer_work(atmosarr, wave, stokes, task_grain_size = 16, task_info = [path, filename, number])
+        overseer_work(atmosarr, wave, stokes, use_ne, task_grain_size = 32, task_info = [path, filename, number])
     else:
         worker_work(rank)
         pass
