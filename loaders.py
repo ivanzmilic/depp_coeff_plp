@@ -6,16 +6,23 @@ import sys
 import muram as mio
 import muram as muram
 
-def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, skipy=1):
+def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, skipy=1, sub=False):
 
 	# Loads the binary files from a muram file, and puts them into a suitable numpy array 
 	# to feed into lw
 
-	T = mio.MuramCube(path, iter, 'Temp')
+	cube = 0
+
+	if (sub):
+		cube = mio.MuramSubSnap(path, iter)
+	else:
+		cube = mio.MuramSnap(path, iter)
+
+	T = cube.Temp
 	T = T.transpose(1,2,0)
 
 	print ("info::muram_binary_loader::the original dimensions are: ", T.shape)
-
+	
 	if (len(ranges) == 0):
 		xmin = 0
 		xmax = T.shape[0]
@@ -36,17 +43,17 @@ def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, s
 
 	#skip = 1
 
-	T = mio.MuramCube(path, iter, 'Temp')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	T = cube.Temp[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	Tc = np.copy(T)
 	Tc[np.where(T<3000.0)] = 3000.0 # Don't go too cool
 	#Tc[np.where(T>50000.0)] = 50000.0
 	z = np.arange(zmax-zmin) * dz
-	p = mio.MuramCube(path, iter, 'Pres')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-	vz = mio.MuramCube(path, iter, 'vx')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-	vx = mio.MuramCube(path, iter, 'vy')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-	vy = mio.MuramCube(path, iter, 'vz')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-	ne = mio.MuramCube(path, iter, 'ne')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-	rho = mio.MuramCube(path, iter, 'rho')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	p = cube.Pres[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vz = cube.vx[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vx = cube.vy[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	vy = cube.vz[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	ne = cube.ne[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+	rho = cube.rho[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	data = {}
 	data["dims"] = np.array([(xmax-xmin)//skipx, (ymax-ymin)//skipy, zmax-zmin])
 	z_3d = np.zeros([(xmax-xmin)//skipx, (ymax-ymin)//skipy, zmax-zmin])
@@ -63,9 +70,9 @@ def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, s
 	# All the conversions above are to lw (that is SI) units
 
 	if (stokes):
-		Bz = mio.MuramCube(path, iter, 'Bx')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-		Bx = mio.MuramCube(path, iter, 'By')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
-		By = mio.MuramCube(path, iter, 'Bz')[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+		Bz = cube.Bx[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+		Bx = cube.By[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
+		By = cube.Bz[zmin:zmax, xmin:xmax:skipx, ymin:ymax:skipy]
 	
 		B = np.sqrt(Bx**2.0 + By**2.0 + Bz**2.0) * np.sqrt(4.0*np.pi)
 		theta = np.arccos(Bz/(B+0.001))
@@ -75,80 +82,12 @@ def muram_binary_loader(path, iter, ranges=[], dz=16E3, stokes=False, skipx=1, s
 		data["theta"] = theta.transpose(1,2,0)[:,:,::-1]
 		data["phi"] = phi.transpose(1,2,0)[:,:,::-1]
 
-	#np.savez("current_atmos.npy", **data)
 
 	return data;
-
-# ================================================================================================================================
-# MOSTLY OBSOLETE - NEEDS FIXING AND UPDATING:
-
-# rather obsolete, better not to use
-def muram_binary_loader_sub(path,iter,ranges,stokes=False):
-
-
-	# Loads the output of a subsnap of a muram simulation into an array:
-
-	snap=muram.MuramSubSnap(path,iter)
-
-	T = snap.Temp.transpose(1,2,0)
-	
-	print ("info::muram_binary_loader::the original dimensions are: ", T.shape)
-
-	if (len(ranges) == 0):
-		xmin = 0
-		xmax = T.shape[0]
-		ymin = 0
-		ymax = T.shape[1]
-		zmin = 0
-		zmax = T.shape[2]
-	elif (len(ranges) == 6):
-		xmin = ranges[0]
-		xmax = ranges[1]
-		ymin = ranges[2]
-		ymax = ranges[3]
-		zmin = ranges[4]
-		zmax = ranges[5]
-	else:
-		print("info::muram_binary_loader:: wrong lenght of ranges... returnin zero")
-		return 0;
-
-	skip = 4
-
-	T = snap.Temp[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	Tc = np.copy(T)
-	Tc[np.where(T<3000.0)] = 3000.0
-	Tc[np.where(T>50000.0)] = 50000.0
-	z = np.arange(zmax-zmin) * 16E3
-	p = snap.Pres[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	vz = snap.vx[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	data = {}
-	data["dims"] = np.array([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
-	z_3d = np.zeros([(xmax-xmin)//skip, (ymax-ymin)//skip, zmax-zmin])
-	z_3d[:,:,:] = z[None,None,:]
-	data["z"] = z_3d[:,:,::-1]
-	data["T"] = Tc.transpose(1,2,0)[:,:,::-1]
-	data["p"] = p.transpose(1,2,0)[:,:,::-1] * 10.0
-	data["vz"] = vz.transpose(1,2,0)[:,:,::-1] / 1E2
-
-	if (stokes):
-		Bz = snap.Bx[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		Bx = snap.By[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-		By = snap.Bz[zmin:zmax, xmin:xmax:skip, ymin:ymax:skip]
-	
-		B = np.sqrt(Bx**2.0 + By**2.0 + Bz**2.0) * np.sqrt(4.0*np.pi)
-		theta = np.arccos(Bz/(B+0.0001))
-		phi = np.arctan(By/Bx)
-
-		data["B"] = B.transpose(2,1,0)[:,:,::-1]
-		data["theta"] = theta.transpose(2,1,0)[:,:,::-1]
-		data["phi"] = phi.transpose(2,1,0)[:,:,::-1]
-
-	return data;
-
 
 def sir_format_loader(filename, stokes=False):
 
-	input_atmos = fits.open(sys.argv[1])[0].data # reads from fits 
+	input_atmos = fits.open(filename)[0].data # reads from fits 
 	input_atmos = input_atmos.transpose(2,3,0,1)
 	data = {}
 	data["z"] = input_atmos[:,:,8,::-1] * 1E3 # km to m

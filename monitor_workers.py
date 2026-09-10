@@ -23,9 +23,9 @@ import os
 import sys
 import time
 import argparse
+import re
 from datetime import datetime
 from pathlib import Path
-from collections import defaultdict
 
 
 def parse_log_file(log_path):
@@ -194,7 +194,7 @@ def tail_worker_log(log_path, num_lines=20):
         print(line.rstrip())
 
 
-def watch_workers(interval=5, timeout_seconds=300):
+def watch_workers(interval=5, timeout_seconds=300, slowest_n=None, include_active=True):
     """Continuously monitor workers."""
     try:
         while True:
@@ -202,11 +202,136 @@ def watch_workers(interval=5, timeout_seconds=300):
             print(f"Worker Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"Refreshing every {interval}s, timeout threshold: {timeout_seconds}s\n")
             check_worker_status(timeout_seconds=timeout_seconds)
+            if slowest_n:
+                identify_slowest_processes(top_n=slowest_n, include_active=include_active)
             print(f"\nPress Ctrl+C to exit...")
             time.sleep(interval)
     except KeyboardInterrupt:
         print("\n\nMonitoring stopped.")
 
+
+def identify_slowest_processes(log_dir="/tmp", top_n=10, include_active=True):
+    """
+    Identify the slowest pixel synth calls from worker logs.
+
+    Completed pixels are ranked by logged "SUCCESS in Xs".
+    If include_active=True, currently running synth() calls are also included
+    using elapsed wall time since "calling synth()".
+    """
+    log_files = find_worker_logs(log_dir=log_dir)
+    if not log_files:
+        print(f"No worker activity logs found in {log_dir}")
+        return []
+    
+    now = datetime.now()
+    records = []
+    
+    for log_path in log_files:
+        worker_rank = log_path.stem.split('_')[2]
+        active_call = None
+        
+        try:
+            with open(log_path, 'r') as f:
+                lines = f.readlines()
+        except Exception as e:
+            print(f"Error reading {log_path}: {e}", file=sys.stderr)
+            continue
+            
+        for raw_line in lines:
+            line = raw_line.strip()
+            ts = _extract_timestamp(line)
+            task, pixel, pixel_total = _extract_task_pixel(line)
+            
+            if 'calling synth()' in line and ts and task is not None:
+                active_call = {
+                    'rank': worker_rank,
+                    'task': task,
+                    'pixel': pixel,
+                    'pixel_total': pixel_total,
+                    'start_time': ts,
+                    'log_path': str(log_path),
+                }
+                continue
+                
+            if 'SUCCESS' in line:
+                duration_s = _extract_success_duration(line)
+                if duration_s is not None and task is not None:
+                    records.append({
+                        'kind': 'COMPLETED',
+                        'duration_s': duration_s,
+                        'rank': worker_rank,
+                        'task': task,
+                        'pixel': pixel,
+                        'pixel_total': pixel_total,
+                        'log_path': str(log_path),
+                    })
+                    
+                # One worker processes one pixel at a time, so success ends active call.
+                active_call = None
+                continue
+                
+            if 'FAILED' in line:
+                active_call = None
+                
+        if include_active and active_call is not None:
+            elapsed = (now - active_call['start_time']).total_seconds()
+            records.append({
+                'kind': 'ACTIVE',
+                'duration_s': elapsed,
+                'rank': active_call['rank'],
+                'task': active_call['task'],
+                'pixel': active_call['pixel'],
+                'pixel_total': active_call['pixel_total'],
+                'log_path': active_call['log_path'],
+            })
+            
+    if not records:
+        print("No completed or active synth() entries found in worker logs.")
+        return []
+    
+    records.sort(key=lambda r: r['duration_s'], reverse=True)
+    top_records = records[:top_n]
+    
+    print(f"\nTop {len(top_records)} slowest synth() calls:")
+    print(f"{'Rank':<6} {'Kind':<10} {'Task':<8} {'Pixel':<10} {'Duration(s)':<12} {'Log'}")
+    print("-" * 90)
+    for rec in top_records:
+        pixel_label = f"{rec['pixel']}/{rec['pixel_total']}"
+        print(
+            f"{rec['rank']:<6} {rec['kind']:<10} {rec['task']:<8} "
+            f"{pixel_label:<10} {rec['duration_s']:<12.2f} {rec['log_path']}"
+        )
+    print()
+    return top_records
+
+
+def _extract_timestamp(line):
+    match = TIMESTAMP_RE.search(line)
+    if not match:
+        return None
+    try:
+        return datetime.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def _extract_task_pixel(line):
+    match = TASK_PIXEL_RE.search(line)
+    if not match:
+        return None, None, None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def _extract_success_duration(line):
+    match = SUCCESS_RE.search(line)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+TIMESTAMP_RE = re.compile(r'^\[([^\]]+)\]')
+TASK_PIXEL_RE = re.compile(r'Task\s+(\d+),\s+pixel\s+(\d+)/(\d+)')
+SUCCESS_RE = re.compile(r'SUCCESS in ([0-9]+(?:\.[0-9]+)?)s')
 
 def main():
     parser = argparse.ArgumentParser(
@@ -239,14 +364,35 @@ def main():
         metavar='SECONDS',
         help='Refresh interval for watch mode (default: 5)'
     )
-    
+    parser.add_argument(
+        '--slowest',
+        type=int,
+        metavar='N',
+        help='Show the N slowest pixel synth calls (includes active calls by default)'
+    )
+    parser.add_argument(
+        '--completed-only',
+        action='store_true',
+        help='With --slowest, show only completed synth calls'
+    )
+     
     args = parser.parse_args()
-    
+     
     if args.watch:
-        watch_workers(interval=args.interval, timeout_seconds=args.timeout)
+        watch_workers(
+            interval=args.interval,
+            timeout_seconds=args.timeout,
+            slowest_n=args.slowest,
+            include_active=not args.completed_only
+        )
     else:
         workers_info = check_worker_status(timeout_seconds=args.timeout)
-        
+        if args.slowest:
+            identify_slowest_processes(
+                top_n=args.slowest,
+                include_active=not args.completed_only
+            )
+         
         if args.tail and workers_info:
             for info in workers_info:
                 tail_worker_log(info['log_path'], num_lines=args.tail)

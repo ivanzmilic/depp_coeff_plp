@@ -15,6 +15,7 @@ import lightweaver as lw
 import numpy as np
 from lightweaver.rh_atoms import (Al_atom, C_atom, CaII_atom, Fe23_atom, H_6_atom, He_9_atom, MgI_atom, N_atom, Na_atom, O_atom, S_atom, Si_atom)
 from myatoms import Fe23_5250
+from custom_atoms import sr_tanausu
 from mpi4py import MPI
 from tqdm import tqdm
 import sys
@@ -30,7 +31,6 @@ from astropy.io import fits
 from loaders import sir_format_loader
 from loaders import flatten_atmosarr
 from loaders import muram_binary_loader
-from loaders import muram_binary_loader_sub
 
 # other files
 
@@ -75,11 +75,12 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     
     # Configure the set of atomic models to use. Contrary to SNAPI you have to explicitly specify all species
     # Annoying, but since you have all the atoms in the file - that is fine.
-    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(), MgI_atom(), N_atom(), Na_atom(), S_atom()])
+    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(), 
+                            MgI_atom(), N_atom(), Na_atom(), S_atom(), sr_tanausu()])
     
     # Set actives to the ones you want
     #aSet.set_active(actives)
-    aSet.set_active('Ca')
+    aSet.set_active('Sr')
     
     # Compute the necessary wavelength dependent information (SpectrumConfiguration).
     spect = aSet.compute_wavelength_grid()
@@ -258,13 +259,13 @@ def overseer_work(atmosarr, wave, stokes, use_ne = False, task_grain_size=16, ta
     
     # THIS IS HARDCODED SO YOU MIGHT WANNA SKIP THIS IF YOU DONT WANT LEVEL POPULATIONS 
     # (But Ivan needs it for his Ca II project ;-))
-    pops = np.asarray(pops)
-    pops = pops.reshape(NX, NY, 6, -1)
+    #pops = np.asarray(pops)
+    #pops = pops.reshape(NX, NY, 16, -1)
     print("info::overseer::writing the spectra")
     spechdu = fits.PrimaryHDU(spectra)
     wavhdu = fits.ImageHDU(wave)
-    popshdu = fits.ImageHDU(pops)
-    to_output = fits.HDUList([spechdu, wavhdu, popshdu])
+    #popshdu = fits.ImageHDU(pops)
+    to_output = fits.HDUList([spechdu, wavhdu])#, popshdu])
     if (task_info is not None):
         path, filename, number = task_info
         to_output.writeto(path+filename+'_'+str(number)+'_lwsynth_'+str(wave[0])+'.fits', overwrite=True)    
@@ -284,7 +285,7 @@ def worker_work(rank):
     with open(activity_log, 'w') as f:
         f.write(f"Worker {rank} started at {datetime.datetime.now()}\n")
     
-    print(f"[Worker {rank}] Started, logging to {activity_log}", flush=True)
+    #print(f"[Worker {rank}] Started, logging to {activity_log}", flush=True)
 
     while True:
         # Send the overseer the signal that the worker is ready
@@ -311,7 +312,7 @@ def worker_work(rank):
             task_start_time = time.time()
             with open(activity_log, 'a') as f:
                 f.write(f"[{datetime.datetime.now()}] Received task {task_index}, grain_size={task_size}, stokes={stokes}\n")
-            print(f"[Worker {rank}] Starting task {task_index} with {task_size} pixels", flush=True)
+            #print(f"[Worker {rank}] Starting task {task_index} with {task_size} pixels", flush=True)
 
             if (stokes):
                 B = data_in['B'].astype(float)
@@ -351,9 +352,9 @@ def worker_work(rank):
                     with open(activity_log, 'a') as f:
                         f.write(f"[{datetime.datetime.now()}] Task {task_index}, pixel {t}/{task_size} - calling synth()\n")
                     
-                    ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Ca')
+                    ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Sr')
                     I[t,:,:] = np.copy(Itemp)
-                    pops[t,:,:] = np.copy(ctxtemp.eqPops['Ca'])
+                    pops[t,:,:] = np.copy(ctxtemp.eqPops['Sr'])
                     
                     pixel_elapsed = time.time() - pixel_start_time
                     with open(activity_log, 'a') as f:
@@ -448,9 +449,21 @@ def worker_work(rank):
                 data_out = {'index': task_index, 'success': success, 'spectrum': I, 'pops': pops}
                 with open(activity_log, 'a') as f:
                     f.write(f"[{datetime.datetime.now()}] Task {task_index} COMPLETED in {task_elapsed:.2f}s ({task_elapsed/task_size:.2f}s per pixel)\n")
-                print(f"[Worker {rank}] Task {task_index} completed in {task_elapsed:.2f}s", flush=True)
+                #print(f"[Worker {rank}] Task {task_index} completed in {task_elapsed:.2f}s", flush=True)
+
             
             comm.send(data_out, dest=0, tag=tags.DONE)
+            
+            # Maybe after completition and sending delete everything unneeded to save memory, just in case?
+            del I
+            del pops
+            del z, temperature, vlos, pg, wave
+            if stokes:
+                del B, inc, azi
+            del atmos
+            del data_out
+            
+            
             with open(activity_log, 'a') as f:
                 f.write(f"[{datetime.datetime.now()}] DONE signal sent for task {task_index}\n")
 
@@ -458,13 +471,13 @@ def worker_work(rank):
         elif tag == tags.EXIT:
             with open(activity_log, 'a') as f:
                 f.write(f"[{datetime.datetime.now()}] Received EXIT signal\n")
-            print(f"[Worker {rank}] Received EXIT signal, shutting down", flush=True)
+            #print(f"[Worker {rank}] Received EXIT signal, shutting down", flush=True)
             break
 
     comm.send(None, dest=0, tag=tags.EXIT)
     with open(activity_log, 'a') as f:
         f.write(f"[{datetime.datetime.now()}] Worker {rank} exiting, EXIT signal sent to overseer\n")
-    print(f"[Worker {rank}] Exited", flush=True)
+    #print(f"[Worker {rank}] Exited", flush=True)
 
 if (__name__ == '__main__'):
 
@@ -493,41 +506,22 @@ if (__name__ == '__main__'):
         
         print("info::overseer::stokes mode is: ", stokes)
 
-        if (atmos_format == 'muramb'):
-            print("info:overseer: opening the atmosphere in muram binary format...")
-            atmosarr = muram_binary_loader(path, number, [0,1024,0,1024,15,316], 20E3, stokes, 4,4)
-            print("info:overseer: ...sucess!")
+        print("info:overseer: opening the atmosphere in muram binary format...")
+        atmosarr = muram_binary_loader(path, number, [0,768,0,768,0,121], 16E3, stokes, 3, 3, sub=True)
+        print("info:overseer: ...sucess!")
             
-        elif (atmos_format == 'muramsb'):
-            print("info:overseer: opening the atmosphere in muram binary (sub) format...")
-            path = '/dat/milic/3D/3D_full_subdomain/'
-            atmosarr = muram_binary_loader_sub(path, int(sys.argv[1]), [512,53,0,512 ,11,90], stokes)
-            print("info:overseer: ...sucess!")
-            
-        elif (atmos_format == 'mrmfx'):
-            print("info:overseer: opening the atmosphere in simple muram format...")
-            atmosarr = load_muram_fixed_format(sys.argv[1],stokes)
-            print("info:overseer: ...sucess!")
-
-        elif (atmos_format == 'sir'):
-            print("info:overseer: opening the atmosphere in SIR format...")
-            atmosarr = sir_format_loader(sys.argv[1],stokes)
-            print("info:overseer: ...sucess!")
         
-        else:
-            print("info:overseer: unknown file format. exiting..")
-            exit();
-
         #atmosarr = atmosarr[i_start:i_end, j_start:j_end]
 
         #wave = np.linspace(516.9,517.6,351)
         #wave0 = np.arange(30)*25.0 + 200.
         #wave = np.linspace(525.00,525.04,81)
-        wave = np.linspace(392.8,394.8,1001)
+        #wave = np.linspace(392.8,394.8,1001)
         #wave = np.append(wave, wave0)
         #wave = np.sort(wave)
         #print("info::overseer:: this is our wavelength grid: ", wave)
-        #wave = np.linspace(460.0, 461.5, 151)
+        #wave = np.linspace(460.7, 460.8, 201)
+        wave = np.linspace(460.72, 460.75, 601)
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 
