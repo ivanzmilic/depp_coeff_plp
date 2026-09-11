@@ -1,0 +1,38 @@
+# Conda environment for the depp_coeff_plp / lw_synth_1d5D synthesis pipeline.
+#
+# Create it with:
+#     conda env create -f environment.yml
+#     conda activate lw
+#
+# IMPORTANT — MPI: mpi4py is deliberately NOT listed below. On a cluster it must
+# be compiled against the *system* MPI (the one `mpirun` and the scheduler use),
+# not a conda-provided one, or `mpirun -n N` launches N independent size-1 jobs.
+# After creating the env, build it against the loaded MPI module (see README):
+#     module load mpi/openmpi-401_gcc-485
+#     MPICC=$(which mpicc) pip install --no-binary=mpi4py mpi4py==3.1.5
+#
+name: lw
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      # Numerics (versions verified working on the KIS cluster, 2026-09).
+      - numpy==2.3.0
+      - scipy==1.17.0
+      - numba==0.63.1
+      - matplotlib==3.10.8
+      - astropy==7.2.0
+      - tqdm==4.67.1
+      - threadpoolctl==3.6.0
+      - pyyaml==6.0.3
+      - parse==1.20.2
+      - weno4==1.1.1
+      - specutils
+      # NLTE radiative transfer engine. 0.16.1 is on PyPI and pulls the deps
+      # above transitively; pins are kept explicit for reproducibility.
+      - lightweaver==0.16.1
+      # For active Lightweaver development, install an editable local clone
+      # INSTEAD of the pinned line above:
+      #   - -e /home/milic/codes/Lightweaver

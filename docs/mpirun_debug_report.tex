@@ -1,0 +1,65 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=1.4em}
+\usepackage{fancyvrb}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\definecolor{good}{rgb}{0.0,0.45,0.0}
+\definecolor{bad}{rgb}{0.65,0.0,0.0}
+\pagestyle{empty}
+\sloppy
+
+\begin{document}
+
+{\large\textbf{Debugging: \code{lw\_synth\_1d5D.py} would not run under \code{mpirun}}}\\[-0.3em]
+{\small Ivan Milic --- 2026-09-09 --- host \code{ron.leibniz-kis.de}}
+
+\textbf{Symptom.} Launching the synthesis pipeline with \code{mpirun -n 128 python lw\_synth\_1d5D.py \ldots}
+failed immediately: every rank exited during start-up before any MPI work began.
+
+\textbf{Root cause.} A recent (uncommitted) refactor merged the old
+\code{muram\_binary\_loader\_sub()} into \code{muram\_binary\_loader(\ldots, sub=True)} in
+\code{loaders.py} and rewrote the \code{\_\_main\_\_} block to use it, but left a stale
+top-level import in \code{lw\_synth\_1d5D.py}:
+\begin{Verbatim}[fontsize=\small,xleftmargin=1.4em]
+from loaders import muram_binary_loader_sub   # name no longer exists
+\end{Verbatim}
+Because it is a module-level import, it raises {\color{bad}\code{ImportError}} the instant the
+interpreter loads the file --- on \emph{all} ranks, before \code{MPI\_Init}. \code{mpirun}
+therefore spawned 128 processes that each died on import; the job looked like an
+``MPI failure'' but MPI was never the problem.
+
+\textbf{Fix.} Removed the dead import line (line 34). No other code referenced the old
+symbol; the \code{sub=True} call path already in \code{\_\_main\_\_} is correct.
+
+\textbf{Verification.}
+\begin{itemize}
+\item \textbf{MPI stack is sound.} The loaded module \code{mpi/openmpi-401\_gcc-485}
+      (Open~MPI~4.0.1) and \code{mpi4py~3.1.5} in conda env \code{lw} (Python~3.12) are
+      consistent: \code{ldd} shows \code{MPI.\ldots so} linked against the system
+      \code{libmpi.so.40}, and \code{mpirun -n 4} reports ranks 0--3 of size~4 (not four
+      size-1 singletons). {\color{good}OK.}
+\item \textbf{End-to-end smoke test.} \code{mpirun -n 6 python lw\_synth\_1d5D.py
+      /dat/milic/3D/3D\_full\_subdomain/ smoketest 0 False False muramsb}. Overseer loaded
+      the MURAM sub-snapshot, flattened to $256\times256=65{,}536$ pixels / 2048 tasks
+      (grain~32), and workers synthesised {\color{good}105 pixels with zero errors}
+      before the test was stopped.
+\item \textbf{Timing.} First pixel per worker $\approx$38\,s (one-time Lightweaver atom
+      setup + Numba JIT), steady state $\approx$0.85\,s/pixel thereafter --- expected, not a bug.
+\end{itemize}
+
+\textbf{Remaining caveats (not blocking, worth a look).}
+\begin{itemize}
+\item \code{runmultiples*.sh} call the script with \code{<number> False muramsb} (3 args),
+      but \code{\_\_main\_\_} now expects 6 positional args
+      \code{path filename number stokes use\_ne format}. The scripts need updating to the
+      new signature (path first, snapshot number third).
+\item Hard-coded in \code{\_\_main\_\_}: loader region \code{[0,512,0,512,0,121]} with skip
+      \code{2,2}, wavelength grid \code{460.0--461.5\,nm}, and active species forced to
+      \code{'Sr'} inside \code{synth()} regardless of the \code{actives} argument.
+\end{itemize}
+
+\end{document}
