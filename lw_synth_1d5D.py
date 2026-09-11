@@ -34,32 +34,59 @@ from loaders import muram_binary_loader
 
 # other files
 
+# --------------------------------------------------------------------------
+# Element abundance configuration
+# --------------------------------------------------------------------------
+# Sr abundance on the dex scale (H == 12.0). Lightweaver's built-in default is
+# 2.87. Set this ONCE here to rescale the Sr line for the whole run; set it to
+# None to fall back to the default solar abundances.
+# NOTE: the override MUST be keyed by an Element (lw.PeriodicTable['Sr']); a
+# formulation like {'Sr': ...} is ignored by AtomicAbundance.
+SR_ABUNDANCE_DEX = 3.07
+
+def make_abundance(sr_dex=SR_ABUNDANCE_DEX):
+    """Build an lw.AtomicAbundance with Sr overridden to sr_dex (dex, H=12).
+    Returns the default abundance table if sr_dex is None."""
+    if sr_dex is None:
+        return lw.DefaultAtomicAbundance
+    return lw.AtomicAbundance({lw.PeriodicTable['Sr']: sr_dex})
+
+# Built once at import time; every MPI rank imports this module, so all ranks
+# share the same abundance without any need to broadcast it.
+ABUNDANCE = make_abundance()
+
 def airtovac(lambda_air):
 
     s = 1E4/(lambda_air*1E1);
     n = 1.0 + 0.00008336624212083 + 0.02408926869968 / (130.1065924522 - s*s) + 0.0001599740894897 / (38.92568793293 - s*s);
     return lambda_air * n
 
-def synth(atmos, conserve, prd, stokes, wave, mu, actives):
-    
+def synth(atmos, conserve, prd, stokes, wave, mu, actives, abund=None):
+
     '''
     Synthesize a spectral region with given parameters:
-    
+
     Parameters
     ----------
     atmos : lw.Atmosphere - The atmospheric model in which to synthesise the line.
-    
+
     conserve : bool - Whether to start from LTE electron density and conserve charge, or simply use from the electron density present in the atmospheric model.
 
-    prd: bool - whether to use prd or no, most of the time it's no 
+    prd: bool - whether to use prd or no, most of the time it's no
 
     stokes: bool - whether to synth all 4 Stokes parameters or I only - for tracking we start with I only
-    
+
     wave : np.ndarray Array of wavelengths over which to resynthesise the final line profile
 
-    mu : mu angle, gonna use 1.0 most of the times 
+    mu : mu angle, gonna use 1.0 most of the times
 
     actives: list of active species to synthesize
+
+    abund: lw.AtomicAbundance or None - element abundances used for the level
+        populations (nTotal = abundance * nHTot). If None, uses Lightweaver's
+        DefaultAtomicAbundance. Set the Sr value once via SR_ABUNDANCE_DEX at the
+        top of this module; the module-level ABUNDANCE object is what the workers
+        pass in here.
 
     Returns
     -------
@@ -73,10 +100,14 @@ def synth(atmos, conserve, prd, stokes, wave, mu, actives):
     # Replace this with atmos.rays ( specify mu ) - let's think how to use Stokes with it
     # ctx.single_stokes_fs
     
+    # Fall back to Lightweaver's default abundances if none were provided.
+    if abund is None:
+        abund = lw.DefaultAtomicAbundance
+
     # Configure the set of atomic models to use. Contrary to SNAPI you have to explicitly specify all species
     # Annoying, but since you have all the atoms in the file - that is fine.
-    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(), 
-                            MgI_atom(), N_atom(), Na_atom(), S_atom(), sr_tanausu()])
+    aSet = lw.RadiativeSet([H_6_atom(), C_atom(), O_atom(), Si_atom(), Al_atom(), CaII_atom(), Fe23_5250(), He_9_atom(),
+                            MgI_atom(), N_atom(), Na_atom(), S_atom(), sr_tanausu()], abundance=abund)
     
     # Set actives to the ones you want
     #aSet.set_active(actives)
@@ -340,21 +371,21 @@ def worker_work(rank):
 
                 if (stokes):
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*5E3, Pgas=pg[t],
-                                  B=B[t], gammaB=inc[t], chiB=azi[t], convertScales=False)
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*0E3, Pgas=pg[t],
+                                  B=B[t], gammaB=inc[t], chiB=azi[t], abundance=ABUNDANCE, convertScales=False)
                 else:
                     atmos = lw.Atmosphere.make_1d(scale=lw.ScaleType.Geometric, depthScale=z[t],
-                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*10E3, Pgas=pg[t], 
-                                  convertScales=False)
+                                  temperature=temperature[t],  vlos=vlos[t], vturb=np.ones(ND)*0E3, Pgas=pg[t],
+                                  abundance=ABUNDANCE, convertScales=False)
 
                 success = 1
                 try:
                     with open(activity_log, 'a') as f:
                         f.write(f"[{datetime.datetime.now()}] Task {task_index}, pixel {t}/{task_size} - calling synth()\n")
                     
-                    ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Sr')
+                    ctxtemp, Itemp = synth(atmos, conserve=False, prd=False, stokes=stokes, wave=airtovac(wave), mu=1.0, actives='Sr', abund=ABUNDANCE)
                     I[t,:,:] = np.copy(Itemp)
-                    pops[t,:,:] = np.copy(ctxtemp.eqPops['Sr'])
+                    #pops[t,:,:] = np.copy(ctxtemp.eqPops['Sr'])
                     
                     pixel_elapsed = time.time() - pixel_start_time
                     with open(activity_log, 'a') as f:
@@ -507,7 +538,7 @@ if (__name__ == '__main__'):
         print("info::overseer::stokes mode is: ", stokes)
 
         print("info:overseer: opening the atmosphere in muram binary format...")
-        atmosarr = muram_binary_loader(path, number, [0,768,0,768,0,121], 16E3, stokes, 3, 3, sub=True)
+        atmosarr = muram_binary_loader(path, number, [0,768, 0,768,0,121], 16E3, stokes, 1, 1, sub=True)
         print("info:overseer: ...sucess!")
             
         
@@ -521,7 +552,7 @@ if (__name__ == '__main__'):
         #wave = np.sort(wave)
         #print("info::overseer:: this is our wavelength grid: ", wave)
         #wave = np.linspace(460.7, 460.8, 201)
-        wave = np.linspace(460.72, 460.75, 601)
+        wave = np.linspace(460.7, 460.85, 601)
         
         print("info::overseer::final atmos shape is: ", atmosarr['T'].shape)
 

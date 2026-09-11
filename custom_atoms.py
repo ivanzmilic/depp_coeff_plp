@@ -35,7 +35,7 @@ def sr_tanausu():
         AtomicLevel(E= 18218.783, g=5, label="SR I 5S4D 3DE 2", stage=0, J=Fraction(2, 1), L=2, S=Fraction(1, 1)), #5
         AtomicLevel(E= 18319.262, g=7, label="SR I 5S4D 3DE 3", stage=0, J=Fraction(3, 1), L=2, S=Fraction(1, 1)), #6
         AtomicLevel(E= 20149.686, g=5, label="SR I 5S4D 1DE 2", stage=0, J=Fraction(2, 1), L=2, S=Fraction(0, 1)), #7
-        AtomicLevel(E= 21698.451, g=3, label="SR I 5S5P 1P0 1", stage=0, J=Fraction(1, 1), L=1, S=Fraction(0, 1)), #8
+        AtomicLevel(E= 21698.452, g=3, label="SR I 5S5P 1P0 1", stage=0, J=Fraction(1, 1), L=1, S=Fraction(0, 1)), #8
         AtomicLevel(E= 30591.824, g=3, label="SR I 5S6S 1SE 0", stage=0, J=Fraction(0, 1), L=0, S=Fraction(0, 1)), #9
         AtomicLevel(E= 34098.402, g=1, label="SR I 5S6P 1P0 1", stage=0, J=Fraction(1, 1), L=1, S=Fraction(0, 1)), #10
         AtomicLevel(E= 34727.445, g=5, label="SR I 5S5D 1DE 2", stage=0, J=Fraction(2, 1), L=2, S=Fraction(0, 1)), #11
